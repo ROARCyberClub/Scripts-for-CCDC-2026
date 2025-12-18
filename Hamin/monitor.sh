@@ -28,13 +28,15 @@ while true; do
         STATUS="[UNKNOWN]"
         COLOR="\e[33m" # Yellow
         
-        # Check against SCORED_SERVICES (Simplified Logic for Dashboard)
-        # This is a basic check. You can expand mapping logic if needed.
-        if [[ " ${SCORED_SERVICES[*]} " =~ "ssh" ]] && [[ "$port" == "22" ]]; then
+        # Check against ALLOWED_PROTOCOLS from vars.sh
+        # Logic: If protocol is in ALLOWED_PROTOCOLS AND port matches standard port
+        if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "ssh" ]] && [[ "$port" == "22" ]]; then
             STATUS="[SCORED/SAFE]"; COLOR="\e[32m" # Green
-        elif [[ " ${SCORED_SERVICES[*]} " =~ "http" ]] && [[ "$port" == "80" ]]; then
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "http" ]] && [[ "$port" == "80" ]]; then
             STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
-        elif [[ " ${SCORED_SERVICES[*]} " =~ "dns" ]] && [[ "$port" == "53" ]]; then
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "https" ]] && [[ "$port" == "443" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "dns" ]] && [[ "$port" == "53" ]]; then
             STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
         else
             STATUS="[SUSPICIOUS!]"; COLOR="\e[31m" # Red
@@ -51,4 +53,13 @@ while true; do
     fi
     
     sleep 3
+
+    # 4. USER ACTIVITY
+    echo -e "\n----------------------------------------------------------"
+    echo -e "[4] SUSPICIOUS USERS (Check UID 0 or New Users)"
+    # Check current logged in users
+    w | head -n 5
+    # Quick check for users with UID 0 other than root
+    echo -e "\n[!] UID 0 Users (Should only be root):"
+    awk -F: '($3 == 0) {print $1}' /etc/passwd
 done

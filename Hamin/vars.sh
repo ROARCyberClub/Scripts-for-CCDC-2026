@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# CCDC CONFIGURATION FILE (vars.sh) - EXPERT V2
+# CCDC CONFIGURATION FILE (vars.sh) - FIXED
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -12,16 +12,15 @@ OVERRIDE_SSH_PORT=""  # Leave empty to auto-detect
 # ------------------------------------------------------------------------------
 # 2. FIREWALL CONFIG (Ports/Protocols to OPEN)
 # ------------------------------------------------------------------------------
-# firewall_safe.sh will look at THIS list.
+# used by: firewall_safe.sh, monitor.sh
 # Options: ssh, http, https, dns, mysql, icmp
 ALLOWED_PROTOCOLS=("ssh" "http" "icmp")
 
 # ------------------------------------------------------------------------------
 # 3. SERVICE PROTECTION (Daemons to KEEP ALIVE)
 # ------------------------------------------------------------------------------
-# service_killer.sh will look at THIS list.
+# used by: service_killer.sh
 # Put the EXACT process/service names here.
-# Tip: Use 'systemctl list-units --type=service' to find names.
 PROTECTED_SERVICES=("ssh" "sshd" "apache2" "nginx" "mysqld")
 
 # ------------------------------------------------------------------------------

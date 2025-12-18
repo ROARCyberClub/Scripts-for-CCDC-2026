@@ -47,14 +47,12 @@ TARGET_SERVICES=(
 # ------------------------------------------------------------------------------
 # 4. Helper Functions
 # ------------------------------------------------------------------------------
-
-# Detect Init System (Systemd vs SysVinit vs OpenRC)
 INIT_SYSTEM="UNKNOWN"
 if command -v systemctl >/dev/null 2>&1; then INIT_SYSTEM="SYSTEMD";
 elif command -v rc-service >/dev/null 2>&1; then INIT_SYSTEM="OPENRC";
 else INIT_SYSTEM="SYSVINIT"; fi
 
-# Check if a service is in the SCORED_SERVICES whitelist
+# Check if a service is in the PROTECTED_SERVICES whitelist
 is_protected() {
     local svc_name=$1
     for protected in "${PROTECTED_SERVICES[@]}"; do
@@ -68,13 +66,11 @@ is_protected() {
 disable_service() {
     local svc="$1"
     
-    # Check if protected BEFORE trying to kill
     if is_protected "$svc"; then
         echo -e "\e[32m[SAFE] Skipping Protected Service: $svc\e[0m"
         return
     fi
 
-    # If not protected, proceed to kill
     case "$INIT_SYSTEM" in
         "SYSTEMD")
             if systemctl is-active --quiet "$svc" || systemctl is-enabled --quiet "$svc"; then
@@ -85,7 +81,6 @@ disable_service() {
             fi
             ;;
         "SYSVINIT"|"OPENRC")
-            # Legacy logic (Simplified)
             if [ -f "/etc/init.d/$svc" ]; then
                 echo -e "\e[31m[KILL] Disabling Unscored Service: $svc\e[0m"
                 service "$svc" stop 2>/dev/null
@@ -99,7 +94,7 @@ disable_service() {
 # ------------------------------------------------------------------------------
 echo "--------------------------------------------------------"
 echo " SMART SERVICE KILLER (Mode: $INIT_SYSTEM)"
-echo " Protected Services: ${SCORED_SERVICES[*]}"
+echo " Protected Services: ${PROTECTED_SERVICES[*]}"
 echo "--------------------------------------------------------"
 
 for target in "${TARGET_SERVICES[@]}"; do

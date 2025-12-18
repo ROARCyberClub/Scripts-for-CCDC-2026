@@ -37,11 +37,7 @@ iptables -P FORWARD DROP
 iptables -P OUTPUT ACCEPT
 
 # 5. TRUSTED RULES (Priority 1)
-# ------------------------------------------------------------------------------
-# Allow Loopback (Localhost) - Vital for system stability
 iptables -A INPUT -i lo -j ACCEPT
-
-# Allow Established Connections - Don't kick yourself out!
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 # Allow Scoreboard (Whitelisting)
@@ -51,13 +47,10 @@ for ip in "${SCOREBOARD_IPS[@]}"; do
 done
 
 # 6. SSH ACCESS (Priority 2)
-# ------------------------------------------------------------------------------
-# Determine SSH Port
 REAL_SSH_PORT=22
 if [ -n "$OVERRIDE_SSH_PORT" ]; then
     REAL_SSH_PORT=$OVERRIDE_SSH_PORT
 else
-    # Attempt Auto-detect
     DETECTED_PORT=$(grep "^Port" /etc/ssh/sshd_config | head -n 1 | awk '{print $2}')
     if [ -n "$DETECTED_PORT" ]; then
         REAL_SSH_PORT=$DETECTED_PORT
@@ -68,8 +61,7 @@ echo "[+] Allowing SSH on Port: $REAL_SSH_PORT"
 iptables -A INPUT -p tcp --dport "$REAL_SSH_PORT" -j ACCEPT
 
 # 7. SCORED SERVICES (Priority 3)
-# ------------------------------------------------------------------------------
-# Add rules for HTTP/HTTPS/DNS if they are in SCORED_SERVICES
+# Iterate through ALLOWED_PROTOCOLS defined in vars.sh
 for proto in "${ALLOWED_PROTOCOLS[@]}"; do
     if [[ "$proto" == "http" ]]; then
         iptables -A INPUT -p tcp --dport 80 -j ACCEPT
@@ -77,10 +69,10 @@ for proto in "${ALLOWED_PROTOCOLS[@]}"; do
         iptables -A INPUT -p tcp --dport 443 -j ACCEPT
     elif [[ "$proto" == "mysql" ]]; then
         iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
-    elif [[ "$svc" == "dns" ]]; then
+    elif [[ "$proto" == "dns" ]]; then
         iptables -A INPUT -p udp --dport 53 -j ACCEPT
         iptables -A INPUT -p tcp --dport 53 -j ACCEPT
-    elif [[ "$svc" == "icmp" ]]; then
+    elif [[ "$proto" == "icmp" ]]; then
         iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
     fi
 done
