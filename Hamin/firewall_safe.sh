@@ -76,7 +76,7 @@ for proto in "${ALLOWED_PROTOCOLS[@]}"; do
     elif [[ "$proto" == "https" ]]; then
         iptables -A INPUT -p tcp --dport 443 -j ACCEPT
     elif [[ "$proto" == "mysql" ]]; then
-        iptables -A INPUT -p tcp --dport 3306 -j ACCEPTT
+        iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
     elif [[ "$svc" == "dns" ]]; then
         iptables -A INPUT -p udp --dport 53 -j ACCEPT
         iptables -A INPUT -p tcp --dport 53 -j ACCEPT
