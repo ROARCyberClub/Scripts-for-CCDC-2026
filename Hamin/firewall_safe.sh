@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# SCRIPT: firewall_safe.sh (Final: Docker Safe + Nmap Trap + English)
+# SCRIPT: firewall_safe.sh (Final: Universal Protocol Support)
 # ==============================================================================
 
 # 1. Import Configuration
@@ -10,84 +10,104 @@ if [[ $EUID -ne 0 ]]; then echo "[ERROR] Run as root"; exit 1; fi
 echo "[*] Applying Firewall Rules (Docker Safe Mode: $USE_DOCKER)..."
 
 # ------------------------------------------------------------------------------
-# 2. FLUSH RULES (Docker Safety Logic RESTORED)
+# 2. FLUSH RULES
 # ------------------------------------------------------------------------------
 if [ "$USE_DOCKER" == "true" ]; then
-    echo "[!] Docker environment detected."
-    echo "    -> Flushing INPUT chain only."
-    echo "    -> Keeping DOCKER-USER and FORWARD chains intact."
-    # In Docker mode, flush only INPUT to preserve container networking
+    echo "[!] Docker environment detected. Flushing INPUT only."
     iptables -F INPUT
 else
-    echo "[*] No Docker detected (Standard Server)."
-    echo "    -> Flushing ALL chains and tables."
-    iptables -F
-    iptables -X
+    echo "[*] No Docker detected. Flushing ALL."
+    iptables -F; iptables -X
 fi
 
 # 3. SET DEFAULT POLICIES
 iptables -P INPUT DROP
-# In Docker mode, FORWARD needs to be handled carefully (usually managed by Docker)
-if [ "$USE_DOCKER" == "true" ]; then
-    # Let Docker manage FORWARD chain (Do nothing or ACCEPT)
-    : 
-else
-    iptables -P FORWARD DROP
-fi
+if [ "$USE_DOCKER" == "true" ]; then :; else iptables -P FORWARD DROP; fi
 iptables -P OUTPUT ACCEPT
 
-# ------------------------------------------------------------------------------
-# 4. TRUSTED ZONES (ALWAYS ALLOW)
-# ------------------------------------------------------------------------------
+# 4. TRUSTED ZONES
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# [CRITICAL] Scoreboard Must Be Allowed BEFORE the Trap Check
-# This prevents the Scoreboard from being banned even if they scan ports.
+# ------------------------------------------------------------------------------
+# 5. SCOREBOARD ACCESS (Restricted Whitelist)
+# ------------------------------------------------------------------------------
+# Helper function to open ports based on protocol names
+allow_protocol_for_ip() {
+    local ip="$1"
+    local proto="$2"
+    
+    case "$proto" in
+        "http")     iptables -A INPUT -s "$ip" -p tcp --dport 80 -j ACCEPT ;;
+        "https")    iptables -A INPUT -s "$ip" -p tcp --dport 443 -j ACCEPT ;;
+        "dns")      iptables -A INPUT -s "$ip" -p udp --dport 53 -j ACCEPT
+                    iptables -A INPUT -s "$ip" -p tcp --dport 53 -j ACCEPT ;;
+        "mysql")    iptables -A INPUT -s "$ip" -p tcp --dport 3306 -j ACCEPT ;;
+        "postgresql"|"pgsql") iptables -A INPUT -s "$ip" -p tcp --dport 5432 -j ACCEPT ;;
+        "ftp")      iptables -A INPUT -s "$ip" -p tcp --dport 21 -j ACCEPT ;;
+        "smtp")     iptables -A INPUT -s "$ip" -p tcp --dport 25 -j ACCEPT ;;
+        "pop3")     iptables -A INPUT -s "$ip" -p tcp --dport 110 -j ACCEPT ;;
+        "imap")     iptables -A INPUT -s "$ip" -p tcp --dport 143 -j ACCEPT ;;
+        "smb"|"samba") 
+                    iptables -A INPUT -s "$ip" -p tcp --dport 139 -j ACCEPT 
+                    iptables -A INPUT -s "$ip" -p tcp --dport 445 -j ACCEPT ;;
+        "icmp")     iptables -A INPUT -s "$ip" -p icmp --icmp-type echo-request -j ACCEPT ;;
+        *)          echo "[WARNING] Unknown protocol '$proto' in vars.sh for Scoreboard." ;;
+    esac
+}
+
 for ip in "${SCOREBOARD_IPS[@]}"; do
     echo "[+] Whitelisting Scoreboard: $ip"
-    iptables -A INPUT -s "$ip" -j ACCEPT
+    # 1. SSH is always allowed for Scoreboard
+    iptables -A INPUT -s "$ip" -p tcp --dport "$SSH_PORT" -j ACCEPT
+    
+    # 2. Allow other services defined in vars.sh
+    for proto in "${ALLOWED_PROTOCOLS[@]}"; do
+        allow_protocol_for_ip "$ip" "$proto"
+    done
 done
 
 # ------------------------------------------------------------------------------
-# 5. ANTI-NMAP BAN CHECK (The Bouncer)
+# 6. ANTI-NMAP BAN CHECK
 # ------------------------------------------------------------------------------
-# If the attacker stepped on the mine previously, DROP them immediately here.
 if [ -n "$TRAP_PORT" ]; then
-    echo "[!] Activating Anti-Nmap Trap Checks (Ban Time: ${BAN_TIME}s)"
-    # Load module if missing
     modprobe xt_recent 2>/dev/null
-    # Check 'PORT_SCANNER' list. If found, update timestamp and DROP.
     iptables -A INPUT -m recent --name PORT_SCANNER --update --seconds "$BAN_TIME" -j DROP
 fi
 
 # ------------------------------------------------------------------------------
-# 6. ALLOWED SERVICES
+# 7. PUBLIC SERVICES (General Access)
 # ------------------------------------------------------------------------------
-# SSH (Port is now calculated in vars.sh)
+# SSH
 echo "[+] Allowing SSH on Port: $SSH_PORT"
 iptables -A INPUT -p tcp --dport "$SSH_PORT" -j ACCEPT
 
-# Services from vars.sh
+# Other Protocols (Same logic as Scoreboard but for ANY source IP)
 for proto in "${ALLOWED_PROTOCOLS[@]}"; do
-    if [[ "$proto" == "http" ]]; then iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-    elif [[ "$proto" == "https" ]]; then iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-    elif [[ "$proto" == "mysql" ]]; then iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
-    elif [[ "$proto" == "dns" ]]; then
-        iptables -A INPUT -p udp --dport 53 -j ACCEPT
-        iptables -A INPUT -p tcp --dport 53 -j ACCEPT
-    elif [[ "$proto" == "icmp" ]]; then iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
-    fi
+    case "$proto" in
+        "http")     iptables -A INPUT -p tcp --dport 80 -j ACCEPT ;;
+        "https")    iptables -A INPUT -p tcp --dport 443 -j ACCEPT ;;
+        "dns")      iptables -A INPUT -p udp --dport 53 -j ACCEPT
+                    iptables -A INPUT -p tcp --dport 53 -j ACCEPT ;;
+        "mysql")    iptables -A INPUT -p tcp --dport 3306 -j ACCEPT ;;
+        "postgresql"|"pgsql") iptables -A INPUT -p tcp --dport 5432 -j ACCEPT ;;
+        "ftp")      iptables -A INPUT -p tcp --dport 21 -j ACCEPT ;;
+        "smtp")     iptables -A INPUT -p tcp --dport 25 -j ACCEPT ;;
+        "pop3")     iptables -A INPUT -p tcp --dport 110 -j ACCEPT ;;
+        "imap")     iptables -A INPUT -p tcp --dport 143 -j ACCEPT ;;
+        "smb"|"samba") 
+                    iptables -A INPUT -p tcp --dport 139 -j ACCEPT 
+                    iptables -A INPUT -p tcp --dport 445 -j ACCEPT ;;
+        "icmp")     iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT ;;
+        *)          echo "[WARNING] Unknown protocol '$proto' in vars.sh." ;;
+    esac
 done
 
 # ------------------------------------------------------------------------------
-# 7. THE TRAP (The Landmine)
+# 8. THE TRAP
 # ------------------------------------------------------------------------------
-# Any connection not matched above, touching TRAP_PORT, gets added to the Blacklist.
 if [ -n "$TRAP_PORT" ]; then
-    # Log triggering
     iptables -A INPUT -p tcp --dport "$TRAP_PORT" -m recent --name PORT_SCANNER --set -j LOG --log-prefix "TRAP_TRIGGERED: " --log-level 4
-    # Drop packet
     iptables -A INPUT -p tcp --dport "$TRAP_PORT" -j DROP
 fi
 

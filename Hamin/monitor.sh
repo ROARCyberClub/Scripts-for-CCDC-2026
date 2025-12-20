@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# SCRIPT: monitor.sh (Final: Trap Integrated + User Activity)
+# SCRIPT: monitor.sh (Final: Full Protocol Support)
 # ==============================================================================
 
 # 1. Import Configuration
@@ -15,14 +15,10 @@ while true; do
     
     # --------------------------------------------------------------------------
     # [1] BANNED ATTACKERS (The Jail)
-    # Reads IPs banned by firewall_safe.sh directly from the xt_recent module.
     # --------------------------------------------------------------------------
     echo -e "\n[1] BANNED ATTACKERS (Instant Ban List)"
     if [ -f /proc/net/xt_recent/PORT_SCANNER ]; then
-        # If xt_recent file exists, print the IPs (Show last 5)
         awk '{print "   [X] BANNED: " $1}' /proc/net/xt_recent/PORT_SCANNER | head -n 5
-        
-        # Check if the list is empty
         lines=$(wc -l < /proc/net/xt_recent/PORT_SCANNER)
         if [ "$lines" -eq 0 ]; then echo "   [Safe] No attackers caught yet."; fi
     else
@@ -30,14 +26,14 @@ while true; do
     fi
 
     # --------------------------------------------------------------------------
-    # [2] ACTIVE CONNECTIONS (Current Sessions)
+    # [2] ACTIVE CONNECTIONS
     # --------------------------------------------------------------------------
     echo -e "\n----------------------------------------------------------"
     echo -e "[2] ACTIVE CONNECTIONS (ESTABLISHED)"
     ss -tun | grep ESTAB | awk '{print "   " $5, "->", $6}' | head -n 5
 
     # --------------------------------------------------------------------------
-    # [3] OPEN PORTS AUDIT (Color Coded)
+    # [3] OPEN PORTS AUDIT (Updated for ALL Protocols)
     # --------------------------------------------------------------------------
     echo -e "\n----------------------------------------------------------"
     echo -e "[3] OPEN PORTS AUDIT"
@@ -49,9 +45,11 @@ while true; do
         STATUS="[UNKNOWN]"
         COLOR="\e[33m" # Yellow (Default)
         
-        # 3.1 Check Safe Protocols (Green)
+        # 3.1 Check SSH (Dynamic Port)
         if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "ssh" ]] && [[ "$port" == "$SSH_PORT" ]]; then
             STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+            
+        # 3.2 Check Standard Web & DNS
         elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "http" ]] && [[ "$port" == "80" ]]; then
             STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
         elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "https" ]] && [[ "$port" == "443" ]]; then
@@ -59,11 +57,31 @@ while true; do
         elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "dns" ]] && [[ "$port" == "53" ]]; then
             STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
             
-        # 3.2 Check TRAP PORT (Cyan) - Verifies if the Trap is active
+        # 3.3 Check Databases
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "mysql" ]] && [[ "$port" == "3306" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "postgresql" || " ${ALLOWED_PROTOCOLS[*]} " =~ "pgsql" ]] && [[ "$port" == "5432" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+            
+        # 3.4 Check Mail & FTP
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "ftp" ]] && [[ "$port" == "21" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "smtp" ]] && [[ "$port" == "25" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "pop3" ]] && [[ "$port" == "110" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "imap" ]] && [[ "$port" == "143" ]]; then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+            
+        # 3.5 Check SMB (Samba)
+        elif [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "smb" || " ${ALLOWED_PROTOCOLS[*]} " =~ "samba" ]] && ([[ "$port" == "139" ]] || [[ "$port" == "445" ]]); then
+            STATUS="[SCORED/SAFE]"; COLOR="\e[32m"
+
+        # 3.6 Check TRAP PORT (Cyan)
         elif [[ "$port" == "$TRAP_PORT" ]]; then
             STATUS="[*** TRAP ACTIVE ***]"; COLOR="\e[36m" # Cyan
             
-        # 3.3 Suspicious (Red)
+        # 3.7 Suspicious (Red)
         else
             STATUS="[SUSPICIOUS!]"; COLOR="\e[31m" # Red
         fi
@@ -72,25 +90,20 @@ while true; do
     done
 
     # --------------------------------------------------------------------------
-    # [4] TRAP LOGS (Real-time Alerts)
+    # [4] TRAP LOGS
     # --------------------------------------------------------------------------
     echo -e "\n----------------------------------------------------------"
     echo -e "[4] TRAP LOGS (Recent Triggers)"
     if command -v dmesg &> /dev/null; then
-        # Search kernel logs for our configured prefix (TRAP_TRIGGERED)
         dmesg | grep "TRAP_TRIGGERED" | tail -n 3 | awk -F] '{print "   [!] " $2}'
     fi
     
     # --------------------------------------------------------------------------
-    # [5] USER ACTIVITY (Suspicious Users)
+    # [5] USER ACTIVITY
     # --------------------------------------------------------------------------
     echo -e "\n----------------------------------------------------------"
     echo -e "[5] USER ACTIVITY (Check UID 0)"
-    
-    # Check current logged in users
     w | head -n 5
-    
-    # Quick check for users with UID 0 other than root
     echo -e "\n   [!] UID 0 Check (Should only be root):"
     awk -F: '($3 == 0) {print "       -> " $1}' /etc/passwd
     
