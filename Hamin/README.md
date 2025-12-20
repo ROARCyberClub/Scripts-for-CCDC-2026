@@ -1,4 +1,6 @@
-# HOW TO EXECUTE
+How To Execute
 
-# chmod +x deploy.sh
-# ./deploy.sh
+Don't forget to change vars.sh
+
+chmod +x deploy.sh
+sudo deploy.sh
