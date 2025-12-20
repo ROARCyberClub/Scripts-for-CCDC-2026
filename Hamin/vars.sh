@@ -1,29 +1,24 @@
 #!/bin/bash
 # ==============================================================================
-# CCDC CONFIGURATION FILE (vars.sh) - FIXED
+# CCDC CONFIGURATION FILE (vars.sh)
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# 1. NETWORK CONFIG
-# ------------------------------------------------------------------------------
+# 1. NETWORK
 SCOREBOARD_IPS=("10.x.x.x") 
-OVERRIDE_SSH_PORT=""  # Leave empty to auto-detect
+OVERRIDE_SSH_PORT=""
 
-# ------------------------------------------------------------------------------
-# 2. FIREWALL CONFIG (Ports/Protocols to OPEN)
-# ------------------------------------------------------------------------------
-# used by: firewall_safe.sh, monitor.sh
-# Options: ssh, http, https, dns, mysql, icmp
+# 2. ALLOWED PORTS
 ALLOWED_PROTOCOLS=("ssh" "http" "icmp")
 
-# ------------------------------------------------------------------------------
-# 3. SERVICE PROTECTION (Daemons to KEEP ALIVE)
-# ------------------------------------------------------------------------------
-# used by: service_killer.sh
-# Put the EXACT process/service names here.
-PROTECTED_SERVICES=("ssh" "sshd" "apache2" "nginx" "mysqld")
+# 3. PROTECTED SERVICES (WhiteList)
+# We list BOTH Debian and RHEL service names to be safe on ANY OS.
+PROTECTED_SERVICES=(
+    "ssh" "sshd"
+    "apache2" "httpd"        # Web Server (Debian / RHEL)
+    "nginx"
+    "mysqld" "mysql" "mariadb" # Database (Various names)
+    "postgresql" "pgsql"
+)
 
-# ------------------------------------------------------------------------------
-# 4. ENVIRONMENT
-# ------------------------------------------------------------------------------
+# 4. ENV
 USE_DOCKER="false"

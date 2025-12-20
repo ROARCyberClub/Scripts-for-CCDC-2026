@@ -39,6 +39,9 @@ TARGET_SERVICES=(
     
     # [Mail]
     "postfix" "exim4" "sendmail" "dovecot"
+
+    # [Conflict Firewalls]
+    "ufw" "firewalld"
     
     # [Network & Bloat]
     "avahi-daemon" "cups" "cups-browsed" "bluetooth" "bluez"
