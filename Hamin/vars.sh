@@ -6,7 +6,7 @@
 # ------------------------------------------------------------------------------
 # 1. NETWORK & SSH CONFIGURATION
 # ------------------------------------------------------------------------------
-SCOREBOARD_IPS=("10.x.x.x") 
+SCOREBOARD_IPS=("10.0.0.1") 
 
 # [LOGIC: DETERMINE FINAL SSH PORT]
 # This variable ($SSH_PORT) will be used by firewall_safe.sh
@@ -47,5 +47,5 @@ USE_DOCKER="false"
 # 5. SECURITY TRAPS (Landmine)
 # ------------------------------------------------------------------------------
 # If an attacker touches TRAP_PORT, the system will block the IP for BAN_TIME
-TRAP_PORT="55555"
+TRAP_PORT="1025"
 BAN_TIME="60" # Blocking Time (seconds)

@@ -6,7 +6,7 @@
 if [[ $EUID -ne 0 ]]; then echo "[ERROR] Run as ROOT."; exit 1; fi
 
 # 1. Password Setup
-NEW_PASS="CCDC_P@ssw0rd_2025!" 
+NEW_PASS="P@ssw0rd" 
 if [ -z "$NEW_PASS" ]; then echo "[ERROR] Set NEW_PASS!"; exit 1; fi
 
 # [CRITICAL FIX] Identify the Admin User to prevent self-lockout
