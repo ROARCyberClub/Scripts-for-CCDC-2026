@@ -1,109 +1,263 @@
 #!/bin/bash
 # ==============================================================================
-# SCRIPT: service_killer.sh (Smart Logic)
-# PURPOSE: Automatically kills services NOT listed in vars.sh (SCORED_SERVICES)
+# SCRIPT: service_killer.sh (Interactive Service Management)
+# PURPOSE: Disable potentially risky services not in the protected whitelist
+# USAGE: Called by deploy.sh or run directly: sudo ./service_killer.sh
 # ==============================================================================
 
-# 1. Import Configuration
-if [ -f "./vars.sh" ]; then
-    source ./vars.sh
-else
-    echo "[ERROR] vars.sh not found! I don't know what to protect."
-    exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# 2. Root Check
-if [[ $EUID -ne 0 ]]; then
-   echo "[ERROR] Please run as ROOT (sudo)." 
-   exit 1
-fi
+# Load dependencies
+source ./vars.sh 2>/dev/null || { echo "[ERROR] vars.sh not found"; exit 1; }
+source ./common.sh 2>/dev/null || { echo "[ERROR] common.sh not found"; exit 1; }
+
+require_root
 
 # ------------------------------------------------------------------------------
-# 3. THE BLACKLIST (Potential Risky Services)
+# 1. DETECT INIT SYSTEM
 # ------------------------------------------------------------------------------
-# The script attempts to disable these services.
-# CRITICAL: If a service is listed in 'SCORED_SERVICES' (inside vars.sh),
-# it will be SKIPPED automatically (Protected).
+INIT_SYSTEM="UNKNOWN"
+if command_exists systemctl; then
+    INIT_SYSTEM="SYSTEMD"
+elif command_exists rc-service; then
+    INIT_SYSTEM="OPENRC"
+elif [ -d /etc/init.d ]; then
+    INIT_SYSTEM="SYSVINIT"
+fi
+
+info "Init system detected: $INIT_SYSTEM"
+
+# ------------------------------------------------------------------------------
+# 2. TARGET SERVICES (Potential Risks)
+# ------------------------------------------------------------------------------
+# These will be disabled UNLESS they are in PROTECTED_SERVICES
+
 TARGET_SERVICES=(
-    # [Remote Access - KILL THESE FIRST]
-    "telnet" "telnetd" "rsh" "rlogin" "vnc" "vncserver" "xrdp" "teamviewer" 
+    # Remote Access (HIGHEST PRIORITY - Kill First!)
+    "telnet" "telnetd" "rsh" "rlogin" "rexec"
+    "vnc" "vncserver" "tigervnc" "tightvncserver"
+    "xrdp" "teamviewer"
     
-    # [Web Servers]
-    "apache2" "httpd" "nginx" "tomcat" "tomcat9" "jboss"
+    # Web Servers
+    "apache2" "httpd" "nginx" "lighttpd"
+    "tomcat" "tomcat9" "jboss"
     
-    # [Databases]
-    "mysql" "mysqld" "mariadb" "postgresql" "psql" "mongodb" "mongod" "redis-server"
+    # Databases
+    "mysql" "mysqld" "mariadb"
+    "postgresql" "postgresql-14" "postgresql-15"
+    "mongodb" "mongod"
+    "redis" "redis-server"
     
-    # [File Sharing]
-    "vsftpd" "proftpd" "pure-ftpd" "smbd" "nmbd" "nfs-kernel-server" "rpcbind"
+    # File Sharing
+    "vsftpd" "proftpd" "pure-ftpd"
+    "smbd" "nmbd" "samba"
+    "nfs-server" "nfs-kernel-server" "rpcbind"
     
-    # [Mail]
+    # Mail
     "postfix" "exim4" "sendmail" "dovecot"
-
-    # [Conflict Firewalls]
+    
+    # Conflicting Firewalls (We use iptables directly)
     "ufw" "firewalld"
     
-    # [Network & Bloat]
-    "avahi-daemon" "cups" "cups-browsed" "bluetooth" "bluez"
+    # Network & Bloat
+    "avahi-daemon" "avahi" "mdns"
+    "cups" "cups-browsed"
+    "bluetooth" "bluez"
+    "snapd"
 )
 
 # ------------------------------------------------------------------------------
-# 4. Helper Functions
+# 3. HELPER FUNCTIONS
 # ------------------------------------------------------------------------------
-INIT_SYSTEM="UNKNOWN"
-if command -v systemctl >/dev/null 2>&1; then INIT_SYSTEM="SYSTEMD";
-elif command -v rc-service >/dev/null 2>&1; then INIT_SYSTEM="OPENRC";
-else INIT_SYSTEM="SYSVINIT"; fi
 
-# Check if a service is in the PROTECTED_SERVICES whitelist
-is_protected() {
-    local svc_name=$1
+# Check if service is in protected list
+is_protected_service() {
+    local svc="$1"
     for protected in "${PROTECTED_SERVICES[@]}"; do
-        if [[ "$protected" == "$svc_name" ]]; then
-            return 0 # True (Protected)
+        if [[ "$protected" == "$svc" ]]; then
+            return 0
         fi
     done
-    return 1 # False
+    return 1
 }
 
-disable_service() {
+# Check if service exists and is active
+check_service_status() {
     local svc="$1"
     
-    if is_protected "$svc"; then
-        echo -e "\e[32m[SAFE] Skipping Protected Service: $svc\e[0m"
-        return
-    fi
-
     case "$INIT_SYSTEM" in
         "SYSTEMD")
-            if systemctl is-active --quiet "$svc" || systemctl is-enabled --quiet "$svc"; then
-                echo -e "\e[31m[KILL] Disabling Unscored Service: $svc\e[0m"
-                systemctl stop "$svc" 2>/dev/null
-                systemctl disable "$svc" 2>/dev/null
-                systemctl mask "$svc" 2>/dev/null
+            if systemctl list-unit-files "${svc}.service" &>/dev/null; then
+                if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                    echo "RUNNING"
+                elif systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                    echo "ENABLED"
+                else
+                    echo "STOPPED"
+                fi
+            else
+                echo "NOT_FOUND"
             fi
             ;;
         "SYSVINIT"|"OPENRC")
             if [ -f "/etc/init.d/$svc" ]; then
-                echo -e "\e[31m[KILL] Disabling Unscored Service: $svc\e[0m"
-                service "$svc" stop 2>/dev/null
+                if service "$svc" status &>/dev/null; then
+                    echo "RUNNING"
+                else
+                    echo "STOPPED"
+                fi
+            else
+                echo "NOT_FOUND"
             fi
+            ;;
+        *)
+            echo "UNKNOWN"
+            ;;
+    esac
+}
+
+# Disable a service
+disable_service() {
+    local svc="$1"
+    
+    case "$INIT_SYSTEM" in
+        "SYSTEMD")
+            run_cmd "systemctl stop $svc 2>/dev/null"
+            run_cmd "systemctl disable $svc 2>/dev/null"
+            run_cmd "systemctl mask $svc 2>/dev/null"
+            ;;
+        "SYSVINIT")
+            run_cmd "service $svc stop 2>/dev/null"
+            if command_exists update-rc.d; then
+                run_cmd "update-rc.d -f $svc disable 2>/dev/null"
+            fi
+            ;;
+        "OPENRC")
+            run_cmd "rc-service $svc stop 2>/dev/null"
+            run_cmd "rc-update del $svc 2>/dev/null"
             ;;
     esac
 }
 
 # ------------------------------------------------------------------------------
-# 5. Execution Loop
+# 4. SCAN & CATEGORIZE SERVICES
 # ------------------------------------------------------------------------------
-echo "--------------------------------------------------------"
-echo " SMART SERVICE KILLER (Mode: $INIT_SYSTEM)"
-echo " Protected Services: ${PROTECTED_SERVICES[*]}"
-echo "--------------------------------------------------------"
+subheader "Service Scan"
 
-for target in "${TARGET_SERVICES[@]}"; do
-    disable_service "$target"
+PROTECTED_FOUND=()
+RISKY_FOUND=()
+TO_DISABLE=()
+
+for svc in "${TARGET_SERVICES[@]}"; do
+    status=$(check_service_status "$svc")
+    
+    if [[ "$status" == "NOT_FOUND" ]] || [[ "$status" == "UNKNOWN" ]]; then
+        continue
+    fi
+    
+    if is_protected_service "$svc"; then
+        PROTECTED_FOUND+=("$svc ($status)")
+    else
+        if [[ "$status" == "RUNNING" ]] || [[ "$status" == "ENABLED" ]]; then
+            RISKY_FOUND+=("$svc")
+            TO_DISABLE+=("$svc")
+        fi
+    fi
 done
 
-echo "--------------------------------------------------------"
-echo " [DONE] Check 'netstat -tulnp' to verify open ports."
-echo "--------------------------------------------------------"
+# Display findings
+if [ ${#PROTECTED_FOUND[@]} -gt 0 ]; then
+    info "Protected services (will NOT be stopped):"
+    for svc in "${PROTECTED_FOUND[@]}"; do
+        echo -e "    ${GREEN}✓${NC} $svc"
+    done
+fi
+
+echo ""
+
+if [ ${#RISKY_FOUND[@]} -gt 0 ]; then
+    warn "Risky services found (will be disabled):"
+    for svc in "${RISKY_FOUND[@]}"; do
+        status=$(check_service_status "$svc")
+        echo -e "    ${RED}✗${NC} $svc [$status]"
+    done
+else
+    success "No risky services found!"
+    exit 0
+fi
+
+# ------------------------------------------------------------------------------
+# 5. INTERACTIVE SERVICE SELECTION
+# ------------------------------------------------------------------------------
+echo ""
+
+if [ "$INTERACTIVE" == "true" ]; then
+    info "You can review each service before disabling."
+    echo ""
+    
+    if confirm "Disable all risky services at once?" "n"; then
+        # Batch mode within interactive
+        BATCH_MODE="true"
+    else
+        BATCH_MODE="false"
+    fi
+else
+    BATCH_MODE="true"
+fi
+
+# ------------------------------------------------------------------------------
+# 6. DISABLE SERVICES
+# ------------------------------------------------------------------------------
+subheader "Disabling Services"
+
+DISABLED_COUNT=0
+SKIPPED_COUNT=0
+
+for svc in "${TO_DISABLE[@]}"; do
+    status=$(check_service_status "$svc")
+    
+    if [[ "$BATCH_MODE" != "true" ]] && [ "$INTERACTIVE" == "true" ]; then
+        echo ""
+        echo -e "${YELLOW}Service:${NC} $svc"
+        echo -e "  Status: $status"
+        
+        # Try to get description
+        if [ "$INIT_SYSTEM" == "SYSTEMD" ]; then
+            desc=$(systemctl show -p Description "$svc" 2>/dev/null | cut -d= -f2)
+            [ -n "$desc" ] && echo -e "  Description: $desc"
+        fi
+        
+        if ! confirm "Disable this service?" "y"; then
+            warn "Skipping: $svc"
+            SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+            continue
+        fi
+    fi
+    
+    if is_dry_run; then
+        info "[DRY-RUN] Would disable: $svc"
+    else
+        disable_service "$svc"
+        action "Disabled: $svc"
+        log_action "Disabled service: $svc"
+    fi
+    
+    DISABLED_COUNT=$((DISABLED_COUNT + 1))
+done
+
+# ------------------------------------------------------------------------------
+# 7. SUMMARY
+# ------------------------------------------------------------------------------
+subheader "Service Cleanup Summary"
+
+echo ""
+success "Service cleanup completed!"
+info "Disabled: $DISABLED_COUNT services"
+info "Skipped: $SKIPPED_COUNT services"
+info "Protected: ${#PROTECTED_FOUND[@]} services"
+
+if ! is_dry_run; then
+    echo ""
+    info "Verify with: netstat -tulnp | grep LISTEN"
+fi
