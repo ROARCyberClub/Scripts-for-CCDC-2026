@@ -11,6 +11,7 @@ This is to get ensure there are no missing/misconfigurations within the default 
 A report is writtn to /var/log/ccdc-audits/.
 ### Baseline Linux Hardening
 This script applies OS-level default security changes by doing the following:
+
 lock down /etc/shadow, /etc/gshadow, etc.
 
 set hardened default umask
