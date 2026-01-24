@@ -46,3 +46,18 @@ CSV Reporting: Generates an easy-to-read LocalRDP_Audit_Report.csv for documenta
 
 Visual Warnings: Highlights privileged users in the PowerShell console for immediate situational awareness.
 
+# System_Audit.ps1
+Run as Administrator 
+
+Comprehensive Inventory: Collects detailed system information, including OS build versions, hardware specs, and patch levels.
+
+Identity Audit: Extracts local user lists, group memberships, and current account policies (password requirements, lockout thresholds).
+
+Persistence Detection: Queries all Scheduled Tasks—a primary hiding spot for Red Team backdoors and automated scripts.
+
+Network Stance: Dumps the entire Windows Firewall rule set to verify the current security posture.
+
+Clean Organization: Automatically creates a timestamped folder on the current user's desktop to store the results, ensuring audit data is easy to find.
+
+Audit Logging: Generates an internal Audit_Log.txt to track the progress and success of the collection process.
+
