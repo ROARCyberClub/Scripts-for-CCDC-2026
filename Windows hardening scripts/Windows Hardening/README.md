@@ -17,4 +17,4 @@ It explicitly opens ICMP (to comply with Rule 14), DNS (Port 53), and Active Dir
 
 It allows logs to flow out to the Splunk server at the specified IP Address.
 
-It disables the Print Spooler service, NetBIOS, sand disables SMBv1.
+It disables the Print Spooler service, NetBIOS, SMBv1, and other server services not required for competition.
