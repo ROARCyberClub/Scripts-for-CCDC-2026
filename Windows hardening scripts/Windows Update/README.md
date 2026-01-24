@@ -1,4 +1,4 @@
-# Windows Update
+# Windows Update.ps1
 
 Egress Opening: Opens outbound TCP 80/443.
 Search: Queries for all uninstalled software updates.
