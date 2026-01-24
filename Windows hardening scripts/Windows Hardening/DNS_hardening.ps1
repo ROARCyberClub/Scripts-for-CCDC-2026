@@ -1,136 +1,78 @@
 #Requires -RunAsAdministrator
 #Requires -Modules DnsServer
 
-# --- 0. ADMIN CHECK ---
-$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Error "CRITICAL: You are NOT running as Administrator."
-    Write-Warning "Right-click PowerShell and select 'Run as Administrator'."
-    exit
-}
+Write-Host "--- DNS Hardening ---" -ForegroundColor Cyan
 
-Clear-Host
-Write-Host "--- CCDC DNS HARDENING PROTOCOL (FINAL) ---" -ForegroundColor Cyan
 
-# 1. Get Primary Zones (Excluding TrustAnchors)
-try {
-    $Zones = Get-DnsServerZone | Where-Object { $_.IsAutoCreated -eq $false -and $_.ZoneType -eq "Primary" -and $_.ZoneName -ne "TrustAnchors" }
-} catch {
-    Write-Error "Could not find DNS zones. Is the DNS Role installed?"
-    exit
-}
+# Create Backup Directory
+$BkpDir = "C:\Backups\DNS"
+if (!(Test-Path $BkpDir)) { New-Item -ItemType Directory -Path $BkpDir -Force }
 
+# 1. Export All Zones to .dns files (Flat Files)
+$Zones = Get-DnsServerZone | Where-Object { $_.IsAutoCreated -eq $false -and $_.ZoneName -ne "TrustAnchors" }
 foreach ($Zone in $Zones) {
     $ZoneName = $Zone.ZoneName
-    Write-Host "`nHardening Zone: $ZoneName" -ForegroundColor Yellow
-
-    # --- A. DISABLE ZONE TRANSFERS ---
-    # Prevents Reconnaissance
-    try {
-        Set-DnsServerPrimaryZone -Name $ZoneName -SecureSecondaries NoTransfer -ErrorAction Stop
-        Write-Host " [OK] Zone Transfers DISABLED (NoTransfer)." -ForegroundColor Green
-    } catch {
-        Write-Host " [!!] Failed to disable Zone Transfers: $($_.Exception.Message)" -ForegroundColor Red
-    }
-
-    # --- B. SECURE DYNAMIC UPDATES ---
-    # Prevents Poisoning
-    try {
-        Set-DnsServerPrimaryZone -Name $ZoneName -DynamicUpdate Secure -ErrorAction Stop
-        Write-Host " [OK] Dynamic Updates set to SECURE." -ForegroundColor Green
-    } catch {
-        Write-Host " [!!] Failed to set Secure Updates: $($_.Exception.Message)" -ForegroundColor Red
-    }
+    # Export-DnsServerZone puts files in C:\Windows\System32\dns\
+    Export-DnsServerZone -Name $ZoneName -FileName "$ZoneName.bak"
+    # Move them to our safe backup folder
+    Move-Item "C:\Windows\System32\dns\$ZoneName.bak" "$BkpDir\$ZoneName.dns" -Force
+    Write-Host "Backed up Zone: $ZoneName" -ForegroundColor Green
 }
 
-# --- C. ENABLE CACHE LOCKING ---
-Write-Host "`nConfiguring Cache Locking..." -ForegroundColor Yellow
-try {
-    Set-DnsServerCache -LockingPercent 100
-    Write-Host " [OK] Cache Locking set to 100%." -ForegroundColor Green
-} catch {
-    Write-Host " [!!] Failed to set Cache Locking." -ForegroundColor Red
+# Backup DNS Server Registry Settings (RRL, Cache, etc.)
+reg export "HKLM\SYSTEM\CurrentControlSet\Services\DNS\Parameters" "$BkpDir\DNS_Settings.reg" /y
+
+Update-Log "Backup" "DNS Zones and Registry Settings saved to $BkpDir"
+
+# --- Zone Security ---
+# Using Get-DnsServerZone to capture all AD-integrated zones
+$Zones = Get-DnsServerZone | Where-Object { $_.IsAutoCreated -eq $false -and $_.ZoneName -ne "TrustAnchors" }
+
+foreach ($Zone in $Zones) {
+    Write-Host "Updating Zone: $($Zone.ZoneName)" -ForegroundColor Yellow
+    
+    # Secure Transfers: Only allow to specific IPs (if you have a secondary) or None.
+    Set-DnsServerZone -Name $Zone.ZoneName -ReplicationScope "Domain" -ErrorAction SilentlyContinue
+    
+    # Disable Transfers
+    Set-DnsServerPrimaryZone -Name $Zone.ZoneName -SecureSecondaries NoTransfer -ErrorAction SilentlyContinue
+    
+    # Secure Updates 
+    Set-DnsServerPrimaryZone -Name $Zone.ZoneName -DynamicUpdate Secure -ErrorAction SilentlyContinue
 }
 
-# --- D. RESPONSE RATE LIMITING (RRL) ---
-# Mitigates Amplification Attacks
-# USING DNSCMD (More robust on Server 2019 Eval)
-Write-Host "`nConfiguring Response Rate Limiting (RRL)..." -ForegroundColor Yellow
+# --- Recursion and Forwarders ---
+Write-Host "Configuring Forwarders & Recursion..." -ForegroundColor Yellow
+# Ensure we point to a real DNS so the team can work
+Set-DnsServerForwarder -IPAddress "1.1.1.1", "8.8.8.8" -PassThru
 
-try {
-    $rrl = dnscmd /Config /RrlMode 1 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        dnscmd /Config /RrlResponsesPerSec 5 | Out-Null
-        dnscmd /Config /RrlErrorsPerSec 5 | Out-Null
-        dnscmd /Config /RrlWindowInSeconds 5 | Out-Null
-        Write-Host " [OK] RRL ENABLED via dnscmd." -ForegroundColor Green
-    } else {
-        throw "dnscmd failed"
-    }
-} catch {
-    Write-Host " [!!] Failed to enable RRL. Ensure DNS Service is RUNNING." -ForegroundColor Red
-}
+# Instead of disabling recursion, we enable it but keep it restricted.
+Set-DnsServerRecursion -Enable $true -UseRootHint $false
 
-# --- E. HIDE VERSION ---
-Write-Host "`nHiding DNS Version..." -ForegroundColor Yellow
+# --- Cache and Socket Pool ---
+Set-DnsServerCache -LockingPercent 100
+dnscmd /Config /SocketPoolSize 4000 | Out-Null
+
+# --- RRL  ---
+# Increased to 15 to prevent accidental scoring drops
+dnscmd /Config /RrlMode 1 | Out-Null
+dnscmd /Config /RrlResponsesPerSec 15 | Out-Null 
+dnscmd /Config /RrlErrorsPerSec 15 | Out-Null
+
+# --- Global Query Block List ---
+# Essential to stop LLMNR/mDNS/WPAD spoofing attacks
+Set-DnsServerGlobalQueryBlockList -Enable $true -List @("wpad", "isatap")
+
+# --- Hide Version ---
 dnscmd /Config /EnableVersionQuery 0 | Out-Null
-Write-Host " [OK] Version Hidden." -ForegroundColor Green
 
-# --- F. RESTART SERVICE ---
-Write-Host "`nRestarting DNS Service to apply changes..." -ForegroundColor Yellow
+# --- Audit Logging ---
+# We enable Event logging but NOT Analytical logging to save Disk I/O
+Set-DnsServerDiagnostics -EnableLogging $true -SaveLogsToFullDiagnosticsFile $false
+
+# --- Restart Service ---
+Write-Host "Restarting DNS Service..." -ForegroundColor Magenta
 Restart-Service DNS
-Write-Host "--- DNS HARDENING COMPLETE ---" -ForegroundColor Magenta
+Update-Log "DNS" "Hardening Applied. Recursion: Restricted, RRL: 15/s, Version: Hidden"
 
-
-# --- G. DISABLE RECURSION (Or Secure it) ---
-# Prevents DNS Tunneling and Amplification
-Write-Host "`nConfiguring Recursion..." -ForegroundColor Yellow
-try {
-    # OPTION 1: Disable Recursion entirely (Safest if you rely on Forwarders)
-    Set-DnsServerRecursion -Enable $false -ErrorAction Stop
-    Write-Host " [OK] Recursion DISABLED (Server will only answer for local zones)." -ForegroundColor Green
-    
-    # OPTION 2: If you NEED recursion, ensure it doesn't use Root Hints (Use Forwarders only)
-    # Set-DnsServerRecursion -Enable $true -UseRootHint $false
-} catch {
-    Write-Host " [!!] Failed to configure Recursion." -ForegroundColor Red
-}
-
-# --- H. GLOBAL QUERY BLOCK LIST (WPAD Protection) ---
-# Prevents WPAD/ISATAP MitM attacks
-Write-Host "`nConfiguring Global Query Block List (WPAD/ISATAP)..." -ForegroundColor Yellow
-try {
-    Set-DnsServerGlobalQueryBlockList -Enable $true -List @("wpad", "isatap") -ErrorAction Stop
-    Write-Host " [OK] WPAD and ISATAP are globally BLOCKED." -ForegroundColor Green
-} catch {
-    Write-Host " [!!] Failed to set Block List." -ForegroundColor Red
-}
-
-# --- I. SOCKET POOL HARDENING ---
-# Increases entropy against Cache Poisoning
-Write-Host "`nHardening Socket Pool..." -ForegroundColor Yellow
-try {
-    # Default is usually 2500, increasing to 4000-10000 is better
-    dnscmd /Config /SocketPoolSize 4000 | Out-Null
-    Write-Host " [OK] Socket Pool increased to 4000." -ForegroundColor Green
-} catch {
-    Write-Host " [!!] Failed to set Socket Pool." -ForegroundColor Red
-}
-
-# --- J. ENABLE LOGGING (For Blue Team Awareness) ---
-Write-Host "`nEnabling DNS Audit Logging..." -ForegroundColor Yellow
-try {
-    # This enables the high-volume analytical log. 
-    # WARNING: In CCDC, this generates massive logs. Only enable if you are shipping logs to ELK/Splunk.
-    # If no SIEM, stick to standard event logging.
-    
-    Set-DnsServerDiagnostics -EnableLogFileRollover $true -VerifyLevel 2
-    Write-Host " [OK] Diagnostic logging levels increased." -ForegroundColor Green
-} catch {
-    Write-Host " [!!] Failed to enable logging." -ForegroundColor Red
-}
-
-# --- F. RESTART SERVICE (Keep this at the end) ---
-Write-Host "`nRestarting DNS Service to apply changes..." -ForegroundColor Yellow
-Restart-Service DNS
-Write-Host "--- DNS HARDENING COMPLETE ---" -ForegroundColor Magenta
+Write-Host "DNS Hardening Complete. Monitor NISE for uptime." -ForegroundColor Green
