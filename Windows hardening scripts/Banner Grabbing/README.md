@@ -1,5 +1,5 @@
 # Banner Grabbing countermeasures.ps1
-
+Run As Administrator. Run on AD/DNS machine
 TCP/IP Stack Spoofing: Changes the Default TTL to 64 (mimicking a different OS) and modifies TCP options to frustrate OS fingerprinting tools like Nmap.
 LDAP Hardening (AD/DNS):
 Enforces LDAP Server Integrity and Channel Binding.
