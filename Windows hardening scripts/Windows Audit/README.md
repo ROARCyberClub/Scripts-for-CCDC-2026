@@ -61,3 +61,18 @@ Clean Organization: Automatically creates a timestamped folder on the current us
 
 Audit Logging: Generates an internal Audit_Log.txt to track the progress and success of the collection process.
 
+# Network_Audit.ps1
+Run as Administrator 
+
+Port-to-Process Mapping: Correlates netstat data with Get-Process to identify exactly which executable is listening on which port. 
+
+Service & Process Audit: Captures all running services and processes, including their CPU usage and executable file paths.
+
+Path Tracking: Lists the file system location of all running executables. 
+
+Network Intelligence: Records all active IP addresses, MAC addresses, and raw network connection states.
+
+Active Directory Integration: If run on a Domain Controller, it automatically attempts to dump a list of all domain users for a quick membership audit.
+
+Automated Organization: Saves all results into a timestamped folder on the current user's desktop for fast retrieval during high-stress competition moments.
+
