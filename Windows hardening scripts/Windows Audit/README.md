@@ -1,0 +1,78 @@
+# Get-DomainPrivilegeReport.ps1
+Run as Administrator
+
+Targeted Audit: Automatically scans for members of the most sensitive security groups:
+Domain Admins,
+Enterprise Admins,
+Built-in Administrators,
+Remote Desktop Users
+
+Status Detection: Reports whether privileged accounts are Enabled or Disabled.
+
+Deep Group Analysis: Extracts and lists every group a privileged user belongs to (delimited by semicolons) for easy cross-referencing.
+
+Performance Optimized: Uses fast string parsing for Distinguished Names to handle larger user bases efficiently.
+
+CSV Export: Generates a professional DomainPrivilegeReport.csv for documentation or Incident Response (IR) reports.
+
+# Get-LocalUserPrivilegeReport.ps1
+Run as Administrator
+
+Comprehensive Local Audit: Scans all local accounts (not just AD accounts) to identify memberships in high-privilege groups:
+Administrators,
+Remote Desktop Users,
+Backup Operators,
+Event Log Readers,
+Power Users
+
+Detailed Account Metadata: Captures the SID (Security Identifier) and Password Last Set date—critical for identifying if the Red Team has renamed an account or rotated a password.
+
+Full Group Mapping: Lists every local group associated with every user, delimited by semicolons.
+
+CSV Reporting: Generates a detailed LocalUserPrivilegeReport.csv for use in Incident Reports (IRs) or security baselining.
+
+Clean Console Output: Provides a quick visual summary of enabled administrative accounts directly in the terminal.
+
+# Audit-LocalRDPUsers.ps1
+Run as Administrator 
+
+RDP Rights Detection: Identifies users with RDP access via membership in the Remote Desktop Users group OR the Administrators group (as Admins have RDP rights by default).
+
+Deception Discovery: Captures the SID and Password Last Set date for every user. This helps identify if the Red Team has renamed a user (e.g., renaming "Guest" to "Admin") or hijacked an existing account.
+
+Comprehensive Mapping: Lists all local groups associated with every user to find nested or hidden permissions.
+
+CSV Reporting: Generates an easy-to-read LocalRDP_Audit_Report.csv for documentation and quick filtering.
+
+Visual Warnings: Highlights privileged users in the PowerShell console for immediate situational awareness.
+
+# System_Audit.ps1
+Run as Administrator 
+
+Comprehensive Inventory: Collects detailed system information, including OS build versions, hardware specs, and patch levels.
+
+Identity Audit: Extracts local user lists, group memberships, and current account policies (password requirements, lockout thresholds).
+
+Persistence Detection: Queries all Scheduled Tasks—a primary hiding spot for Red Team backdoors and automated scripts.
+
+Network Stance: Dumps the entire Windows Firewall rule set to verify the current security posture.
+
+Clean Organization: Automatically creates a timestamped folder on the current user's desktop to store the results, ensuring audit data is easy to find.
+
+Audit Logging: Generates an internal Audit_Log.txt to track the progress and success of the collection process.
+
+# Network_Audit.ps1
+Run as Administrator 
+
+Port-to-Process Mapping: Correlates netstat data with Get-Process to identify exactly which executable is listening on which port. 
+
+Service & Process Audit: Captures all running services and processes, including their CPU usage and executable file paths.
+
+Path Tracking: Lists the file system location of all running executables. 
+
+Network Intelligence: Records all active IP addresses, MAC addresses, and raw network connection states.
+
+Active Directory Integration: If run on a Domain Controller, it automatically attempts to dump a list of all domain users for a quick membership audit.
+
+Automated Organization: Saves all results into a timestamped folder on the current user's desktop for fast retrieval during high-stress competition moments.
+

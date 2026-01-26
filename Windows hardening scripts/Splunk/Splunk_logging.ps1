@@ -1,60 +1,154 @@
-﻿#Requires -RunAsAdministrator
+﻿# ==============================================================================
+# 2026 MWCCDC - UNIVERSAL Windows Splunk UF Deployment
+# Targets: VM #5, #6, #7, and #8
+# ==============================================================================
 
-# --- CONFIGURATION ---
-$SplunkIndexer = "ip_address"
-$IndexerPort   = "9997"
-$SplunkPath    = "C:\Program Files\SplunkUniversalForwarder\bin\splunk.exe"
-$DownloadUrl   = "Splunk_Url"
-$MsiPath       = "$env:TEMP\splunk_uf.msi"
+$ErrorActionPreference = "Stop"
 
-Write-Host "--- MWCCDC Splunk Setup ---" -ForegroundColor Cyan
+# ------------------------------------------------------------------------------
+# 1. COMPETITION VARIABLES
+# ------------------------------------------------------------------------------
+$INDEXER_IP   = "172.20.242.20"  # VM #3 (Splunk Server)
+$INDEXER_PORT = "9997"
 
-# 1. OPEN FIREWALL (Do this first so the installer can phone home)
-Write-Host "[!] Opening Firewall Port TCP 9997..." -ForegroundColor Yellow
-netsh advfirewall firewall add rule name="CCDC-Splunk-Out" dir=out action=allow protocol=TCP remoteport=$IndexerPort remoteip=$SplunkIndexer
+$UF_ADMIN_USER = "admin"
+$UF_ADMIN_PASS = "Changeme123!" # Change me
 
-# 2. CHECK IF INSTALLED
-if (Test-Path $SplunkPath) {
-    Write-Host "[+] Splunk is already installed. Skipping installation." -ForegroundColor Green
+$SPLUNK_HOME   = "C:\Program Files\SplunkUniversalForwarder"
+$DOWNLOAD_DIR  = "$env:TEMP\splunk_uf"
+$MSI_URL       = "https://download.splunk.com/products/universalforwarder/releases/10.0.2/windows/splunkforwarder-10.0.2-e2d18b4767e9-windows-x64.msi"
+$MSI_PATH      = "$DOWNLOAD_DIR\splunk_uf.msi"
+
+# Identify the machine for Splunk 
+$HOSTNAME = $env:COMPUTERNAME 
+
+# ------------------------------------------------------------------------------
+# 2. HELPER FUNCTIONS
+# ------------------------------------------------------------------------------
+function Log($msg)  { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] [+] $msg" -ForegroundColor Green }
+function Warn($msg) { Write-Host "[$(Get-Date -Format 'HH:mm:ss')] [!] $msg" -ForegroundColor Yellow }
+
+# ------------------------------------------------------------------------------
+# 3. INSTALLATION LOGIC
+# ------------------------------------------------------------------------------
+if (-not (Test-Path "$SPLUNK_HOME\bin\splunk.exe")) {
+    if (!(Test-Path $DOWNLOAD_DIR)) { New-Item -ItemType Directory -Path $DOWNLOAD_DIR | Out-Null }
+    
+    Log "Downloading Splunk UF for $HOSTNAME..."
+    Invoke-WebRequest -Uri $MSI_URL -OutFile $MSI_PATH -UserAgent "PowerShell"
+
+    Log "Installing Silently..."
+    $installArgs = @(
+        "/i", "`"$MSI_PATH`"",
+        "AGREETOLICENSE=Yes",
+        "INSTALLDIR=`"$SPLUNK_HOME`"",
+        "SPLUNKUSERNAME=$UF_ADMIN_USER",
+        "SPLUNKPASSWORD=$UF_ADMIN_PASS",
+        "SERVICESTARTTYPE=auto",
+        "/qn"
+    )
+    Start-Process msiexec.exe -ArgumentList $installArgs -Wait
 } else {
-    Write-Host "[-] Splunk NOT found. Downloading from internet..." -ForegroundColor Yellow
-    try {
-        # Download the MSI
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $MsiPath -ErrorAction Stop
-        
-        Write-Host "[!] Installing Splunk silently..." -ForegroundColor Yellow
-        # Silent Install: Agrees to license, sets the indexer, and starts the service
-        $InstallArgs = "/i `"$MsiPath`" AGREETOLICENSE=Yes RECEIVING_INDEXER=`"$($SplunkIndexer):$($IndexerPort)`" LAUNCHSPLUNK=1 /quiet"
-        Start-Process msiexec.exe -ArgumentList $InstallArgs -Wait
-        
-        Write-Host "[+] Installation complete." -ForegroundColor Green
-    } catch {
-        Write-Error "Failed to download or install Splunk. Check internet connectivity."
-        return
-    }
+    Warn "Splunk UF already installed on $HOSTNAME."
 }
 
-# 3. CONFIGURE LOG SOURCES
-if (Test-Path $SplunkPath) {
-    Write-Host "[!] Configuring Log Sources..." -ForegroundColor Yellow
-    
-    # Point to indexer (in case it wasn't set during install)
-    & $SplunkPath add forward-server "$($SplunkIndexer):$($IndexerPort)" -auth admin:changeme
-    
-    # Monitor standard Windows logs
-    & $SplunkPath add eventlog Security -sourcetype WinEventLog:Security
-    & $SplunkPath add eventlog System -sourcetype WinEventLog:System
-    & $SplunkPath add eventlog Application -sourcetype WinEventLog:Application
-    
-    # Monitor Web Logs if this is the Docker/Web server
-    if (Test-Path "C:\inetpub\logs\LogFiles") {
-        & $SplunkPath add monitor "C:\inetpub\logs\LogFiles\*" -sourcetype iis
-    }
+# ------------------------------------------------------------------------------
+# 4. DYNAMIC LOG DISCOVERY (The "Universal" Part)
+# ------------------------------------------------------------------------------
+$LOCAL_CONF = "$SPLUNK_HOME\etc\system\local"
 
-    # Restart to ensure everything is running
-    Restart-Service SplunkForwarder -ErrorAction SilentlyContinue
-    Write-Host "[SUCCESS] Logs are now being sent to $SplunkIndexer" -ForegroundColor Green
+# Base configuration for EVERY Windows machine
+$inputsContent = @"
+[default]
+host = $HOSTNAME
+
+[WinEventLog://Security]
+index = main
+disabled = false
+
+[WinEventLog://System]
+index = main
+disabled = false
+
+[WinEventLog://Application]
+index = main
+disabled = false
+"@
+
+# --- AUTO-DETECTION LOGIC ---
+
+# 1. Detect IIS/Web/FTP (VM #6, VM #7)
+if (Test-Path "C:\inetpub\logs\LogFiles") {
+    Log "Detected IIS/FTP - Adding Web Log Monitors..."
+    $inputsContent += @"
+
+[monitor://C:\inetpub\logs\LogFiles\*]
+index = main
+sourcetype = ms:iis:auto
+disabled = false
+"@
 }
 
-# 4. CLEANUP
-if (Test-Path $MsiPath) { Remove-Item $MsiPath }
+# 2. Detect DNS Server (VM #5)
+if (Get-Service "DNS" -ErrorAction SilentlyContinue) {
+    Log "Detected DNS Server - Adding DNS Log Monitors..."
+    $inputsContent += @"
+
+[WinEventLog://DNS Server]
+index = main
+disabled = false
+
+[monitor://C:\Windows\System32\dns\dns.log]
+index = main
+sourcetype = dns
+disabled = false
+"@
+}
+
+# 3. Detect DHCP Server
+if (Get-Service "DHCPServer" -ErrorAction SilentlyContinue) {
+    Log "Detected DHCP Server - Adding DHCP Log Monitors..."
+    $inputsContent += @"
+
+[monitor://C:\Windows\System32\dhcp\DhcpSrvLog*]
+index = main
+sourcetype = dhcp
+disabled = false
+"@
+}
+
+# 4. Detect Sysmon (If you installed it)
+if (Get-Service "Sysmon" -ErrorAction SilentlyContinue) {
+    Log "Detected Sysmon - Adding Sysmon Monitor..."
+    $inputsContent += @"
+
+[WinEventLog://Microsoft-Windows-Sysmon/Operational]
+index = main
+disabled = false
+"@
+}
+
+# ------------------------------------------------------------------------------
+# 5. APPLY CONFIG & RESTART
+# ------------------------------------------------------------------------------
+Log "Applying Universal Config to $LOCAL_CONF..."
+
+# Set Outputs
+@"
+[tcpout]
+defaultGroup = primary_indexers
+
+[tcpout:primary_indexers]
+server = ${INDEXER_IP}:${INDEXER_PORT}
+"@ | Set-Content "$LOCAL_CONF\outputs.conf" -Encoding ASCII
+
+# Set Inputs
+$inputsContent | Set-Content "$LOCAL_CONF\inputs.conf" -Encoding ASCII
+
+Log "Restarting SplunkForwarder..."
+Restart-Service SplunkForwarder -Force
+
+# Cleanup
+if (Test-Path $MSI_PATH) { Remove-Item $MSI_PATH -Force }
+
+Log "DONE. $HOSTNAME is now shipping logs to VM #3."
