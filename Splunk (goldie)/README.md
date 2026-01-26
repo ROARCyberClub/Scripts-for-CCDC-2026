@@ -6,13 +6,13 @@ chmod +x splunk-hardening.sh
 sudo ./splunk_harden.sh 
 
 #### NOTE: change firewall rules?
-- we changed default ports
+- we changed default ports so we might have to change firewall rules if it doesnt work
+```
 ufw allow from 172.20.242.0/24 to any port 9997
-ufw allow from <YOUR_IP> to any port 8443
-- ip of machines allowed to access splunk UI 
+ufw allow from <YOUR_IP> to any port 8443 # ip of machines allowed to access splunk UI 
 ufw deny 8000
 ufw deny 8089
-
+```
 ### Splunk uf for linux
 installs and configures the splunk uf for linux systems, detects server roles, and forwards those application logs to the central splunk server.
 run simular as stated above: 
