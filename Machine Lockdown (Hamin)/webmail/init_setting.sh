@@ -242,6 +242,73 @@ if [ -n "$EMPTY_PASS" ]; then
 fi
 
 # ------------------------------------------------------------------------------
+# 6.5 SSH HARDENING
+# ------------------------------------------------------------------------------
+subheader "SSH Hardening"
+
+SSHD_CONFIG="/etc/ssh/sshd_config"
+SSH_MODIFIED="false"
+
+if [ -f "$SSHD_CONFIG" ]; then
+    info "Hardening SSH configuration..."
+    
+    if ! is_dry_run; then
+        cp "$SSHD_CONFIG" "${BACKUP_DIR}/sshd_config.backup"
+    fi
+    
+    CURRENT_ROOT=$(grep -E "^PermitRootLogin" "$SSHD_CONFIG" | awk '{print $2}')
+    if [ "$CURRENT_ROOT" == "yes" ]; then
+        if ! is_dry_run; then
+            sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' "$SSHD_CONFIG"
+            success "Disabled root SSH login"
+            SSH_MODIFIED="true"
+        fi
+    elif [ -z "$CURRENT_ROOT" ]; then
+        if ! is_dry_run; then
+            echo "PermitRootLogin no" >> "$SSHD_CONFIG"
+            success "Added PermitRootLogin no"
+            SSH_MODIFIED="true"
+        fi
+    else
+        success "Root login already restricted: $CURRENT_ROOT"
+    fi
+    
+    CURRENT_TRIES=$(grep -E "^MaxAuthTries" "$SSHD_CONFIG" | awk '{print $2}')
+    if [ -z "$CURRENT_TRIES" ] || [ "$CURRENT_TRIES" -gt 4 ]; then
+        if ! is_dry_run; then
+            if [ -n "$CURRENT_TRIES" ]; then
+                sed -i 's/^MaxAuthTries.*/MaxAuthTries 3/' "$SSHD_CONFIG"
+            else
+                echo "MaxAuthTries 3" >> "$SSHD_CONFIG"
+            fi
+            success "Set MaxAuthTries to 3"
+            SSH_MODIFIED="true"
+        fi
+    fi
+    
+    CURRENT_EMPTY=$(grep -E "^PermitEmptyPasswords" "$SSHD_CONFIG" | awk '{print $2}')
+    if [ "$CURRENT_EMPTY" != "no" ]; then
+        if ! is_dry_run; then
+            if grep -q "^PermitEmptyPasswords" "$SSHD_CONFIG"; then
+                sed -i 's/^PermitEmptyPasswords.*/PermitEmptyPasswords no/' "$SSHD_CONFIG"
+            else
+                echo "PermitEmptyPasswords no" >> "$SSHD_CONFIG"
+            fi
+            success "Disabled empty password login"
+            SSH_MODIFIED="true"
+        fi
+    fi
+    
+    if [ "$SSH_MODIFIED" == "true" ] && ! is_dry_run; then
+        info "Restarting SSH service..."
+        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
+        success "SSH service restarted"
+    fi
+else
+    warn "sshd_config not found"
+fi
+
+# ------------------------------------------------------------------------------
 # 7. SUMMARY
 # ------------------------------------------------------------------------------
 subheader "Hardening Summary"

@@ -47,7 +47,9 @@ Open a terminal and run the following commands in order:
     *   `SPLUNK_WEB_PORT`, `SPLUNK_FORWARDER_PORT`, etc., define management ports.
 
 ### 3. Functional Scripts
-*   **`init_setting.sh`**: Initial hardening (Password change, SSH key removal, etc.).
+*   **`init_setting.sh`**: Initial hardening.
+    *   Password change, SSH key removal.
+    *   **SSH hardening**: Disables root login, limits auth attempts.
 *   **`firewall_safe.sh`**: Firewall settings.
     *   Automatically allows Splunk Web (8000), Forwarder (9997), and Mgmt (8089) ports.
 *   **`service_killer.sh`**: Terminates unnecessary services (excluding Splunk services).

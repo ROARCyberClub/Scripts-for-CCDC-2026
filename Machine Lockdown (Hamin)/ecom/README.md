@@ -44,8 +44,13 @@ Open a terminal and run the following commands:
 *   **`init_setting.sh`**: Performs initial hardening.
     *   Changes passwords for all users (except the current admin).
     *   Removes SSH `authorized_keys` (eliminates key-based backdoors).
+    *   **SSH hardening**: Disables root login, limits auth attempts.
     *   Backs up configuration files.
-*   **`firewall_safe.sh`**: Configures the firewall (iptables/ufw).
+*   **`mysql_secure.sh`**: **(NEW)** MySQL/MariaDB security hardening.
+    *   Changes MySQL root password.
+    *   Removes anonymous users and test database.
+    *   Disables remote root access.
+*   **`firewall_safe.sh`**: Configures the firewall (ufw).
     *   Applies whitelist-based blocking policies.
     *   Sets up honeypot trap ports.
 *   **`service_killer.sh`**: Terminates unnecessary services.
