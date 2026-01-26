@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
-# SCRIPT: monitor.sh (Enhanced Defense Dashboard)
-# PURPOSE: Real-time monitoring with logging and keyboard controls
+# SCRIPT: monitor.sh (Splunk Defense Dashboard)
+# PURPOSE: Real-time monitoring with Splunk status and keyboard controls
 # USAGE: sudo ./monitor.sh
 # ==============================================================================
 
@@ -23,10 +23,8 @@ mkdir -p "$LOG_DIR" 2>/dev/null
 
 # Alert thresholds
 ALERT_MAX_CONNECTIONS=20
-ALERT_MAX_BANNED=5
 
 # Track state for alerts
-LAST_BANNED_COUNT=0
 LAST_CONNECTION_COUNT=0
 
 # ------------------------------------------------------------------------------
@@ -35,11 +33,10 @@ LAST_CONNECTION_COUNT=0
 
 # Play alert sound (if available)
 play_alert() {
-    # Try different methods
     if command_exists paplay; then
         paplay /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga 2>/dev/null &
     elif command_exists aplay; then
-        echo -e '\a' # Terminal bell
+        echo -e '\a'
     fi
 }
 
@@ -49,15 +46,6 @@ log_event() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $event" >> "$MONITOR_LOG"
 }
 
-# Get banned IP count
-get_banned_count() {
-    if [ -f /proc/net/xt_recent/PORT_SCANNER ]; then
-        wc -l < /proc/net/xt_recent/PORT_SCANNER
-    else
-        echo 0
-    fi
-}
-
 # Get active connection count
 get_connection_count() {
     ss -tun 2>/dev/null | grep -c ESTAB || echo 0
@@ -65,20 +53,12 @@ get_connection_count() {
 
 # Check for new threats
 check_alerts() {
-    local current_banned=$(get_banned_count)
     local current_conns=$(get_connection_count)
-    
-    # New banned IPs
-    if [ "$current_banned" -gt "$LAST_BANNED_COUNT" ]; then
-        local new_bans=$((current_banned - LAST_BANNED_COUNT))
-        log_event "ALERT: $new_bans new IP(s) banned!"
-        play_alert
-    fi
-    LAST_BANNED_COUNT=$current_banned
     
     # Too many connections
     if [ "$current_conns" -gt "$ALERT_MAX_CONNECTIONS" ] && [ "$current_conns" -gt "$LAST_CONNECTION_COUNT" ]; then
         log_event "ALERT: High connection count: $current_conns"
+        play_alert
     fi
     LAST_CONNECTION_COUNT=$current_conns
 }
@@ -88,49 +68,87 @@ check_alerts() {
 # ------------------------------------------------------------------------------
 
 draw_header() {
-    local mode_str=""
-    [ "$USE_DOCKER" == "true" ] && mode_str+="Docker "
-    [ "$USE_IPV6" == "true" ] && mode_str+="IPv6 "
-    
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════╗"
-    echo "║           CCDC DEFENSE DASHBOARD v2.0 - $(date +%H:%M:%S)                ║"
+    echo "║        SPLUNK SERVER DASHBOARD v2.0 - $(date +%H:%M:%S)                 ║"
     echo "╠══════════════════════════════════════════════════════════════════╣"
-    echo -e "║  Mode: ${mode_str:-Standard}| Trap: ${TRAP_PORT} | Refresh: ${REFRESH_INTERVAL}s                       ║"
+    echo -e "║  Firewall: firewalld | Trap: ${TRAP_PORT} | Refresh: ${REFRESH_INTERVAL}s                     ║"
     echo "╚══════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
-    echo -e "${YELLOW}Controls: [q] Quit  [p] Panic  [r] Refresh  [a] Run Audit${NC}"
+    echo -e "${YELLOW}Controls: [q] Quit  [p] Panic  [r] Refresh  [a] Audit  [s] Splunk restart${NC}"
     echo ""
 }
 
-draw_banned() {
-    echo -e "${BOLD}[1] BANNED ATTACKERS (Honeypot Triggered)${NC}"
+draw_splunk_status() {
+    echo -e "${BOLD}[1] SPLUNK STATUS${NC}"
     echo "────────────────────────────────────────────────────"
     
-    if [ -f /proc/net/xt_recent/PORT_SCANNER ]; then
-        local count=$(wc -l < /proc/net/xt_recent/PORT_SCANNER)
-        if [ "$count" -gt 0 ]; then
-            echo -e "${RED}"
-            awk '{
-                # Extract IP address (first field) and timestamp
-                gsub(/src=/, "")
-                print "   ☠  BANNED: " $1
-            }' /proc/net/xt_recent/PORT_SCANNER | head -n 5
-            echo -e "${NC}"
-            if [ "$count" -gt 5 ]; then
-                echo "   ... and $((count - 5)) more"
-            fi
+    local splunk_bin="${SPLUNK_HOME:-/opt/splunk}/bin/splunk"
+    
+    if [ -x "$splunk_bin" ]; then
+        local status=$("$splunk_bin" status 2>/dev/null | head -n 1)
+        if echo "$status" | grep -qi "running"; then
+            echo -e "   ${GREEN}✓ Splunk is RUNNING${NC}"
         else
-            echo -e "   ${GREEN}✓ No attackers caught yet${NC}"
+            echo -e "   ${RED}✗ Splunk is NOT RUNNING!${NC}"
+            log_event "ALERT: Splunk service is down!"
         fi
+        
+        # Show Splunk version
+        local version=$("$splunk_bin" version 2>/dev/null | head -n 1)
+        [ -n "$version" ] && echo "   Version: $version"
     else
-        echo "   [i] Trap module not active or no bans"
+        # Try systemd
+        if systemctl is-active --quiet Splunkd 2>/dev/null; then
+            echo -e "   ${GREEN}✓ Splunkd service is running${NC}"
+        elif systemctl is-active --quiet splunk 2>/dev/null; then
+            echo -e "   ${GREEN}✓ Splunk service is running${NC}"
+        else
+            echo -e "   ${YELLOW}? Splunk status unknown (${splunk_bin} not found)${NC}"
+        fi
+    fi
+    
+    # Show listening Splunk ports
+    echo ""
+    echo "   Splunk Ports:"
+    for port in ${SPLUNK_WEB_PORT:-8000} ${SPLUNK_FORWARDER_PORT:-9997} ${SPLUNK_MGMT_PORT:-8089}; do
+        if ss -tuln 2>/dev/null | grep -q ":$port "; then
+            echo -e "     ${GREEN}✓${NC} Port $port: LISTENING"
+        else
+            echo -e "     ${RED}✗${NC} Port $port: NOT LISTENING"
+        fi
+    done
+    echo ""
+}
+
+draw_firewall_status() {
+    echo -e "${BOLD}[2] FIREWALL STATUS (firewalld)${NC}"
+    echo "────────────────────────────────────────────────────"
+    
+    if command_exists firewall-cmd; then
+        local zone=$(firewall-cmd --get-default-zone 2>/dev/null)
+        local status=$(systemctl is-active firewalld 2>/dev/null)
+        
+        if [ "$status" == "active" ]; then
+            echo -e "   ${GREEN}✓ firewalld is active${NC} (zone: $zone)"
+        else
+            echo -e "   ${RED}✗ firewalld is NOT running!${NC}"
+        fi
+        
+        # Show open ports
+        echo ""
+        echo "   Open ports:"
+        firewall-cmd --list-ports 2>/dev/null | tr ' ' '\n' | while read port; do
+            [ -n "$port" ] && echo "     • $port"
+        done
+    else
+        echo -e "   ${YELLOW}? firewall-cmd not found${NC}"
     fi
     echo ""
 }
 
 draw_connections() {
-    echo -e "${BOLD}[2] ACTIVE CONNECTIONS${NC}"
+    echo -e "${BOLD}[3] ACTIVE CONNECTIONS${NC}"
     echo "────────────────────────────────────────────────────"
     
     local conns=$(ss -tun 2>/dev/null | grep ESTAB | head -n 8)
@@ -152,10 +170,10 @@ draw_connections() {
 }
 
 draw_ports() {
-    echo -e "${BOLD}[3] OPEN PORTS AUDIT${NC}"
+    echo -e "${BOLD}[4] OPEN PORTS AUDIT${NC}"
     echo "────────────────────────────────────────────────────"
     
-    local ports=$(netstat -tuln 2>/dev/null | awk 'NR>2 {print $4}' | awk -F: '{print $NF}' | sort -n | uniq)
+    local ports=$(ss -tuln 2>/dev/null | awk 'NR>1 {print $5}' | awk -F: '{print $NF}' | sort -n | uniq)
     
     for port in $ports; do
         [ -z "$port" ] && continue
@@ -163,37 +181,24 @@ draw_ports() {
         local status="[?]"
         local color="$YELLOW"
         
-        # Check if port is in allowed protocols
         case "$port" in
             "$SSH_PORT")
-                if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "ssh" ]]; then
-                    status="[SCORED]"; color="$GREEN"
-                fi
+                status="[SSH]"; color="$GREEN"
                 ;;
             "80")
-                if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "http" ]]; then
-                    status="[SCORED]"; color="$GREEN"
-                fi
+                status="[HTTP]"; color="$GREEN"
                 ;;
             "443")
-                if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "https" ]]; then
-                    status="[SCORED]"; color="$GREEN"
-                fi
+                status="[HTTPS]"; color="$GREEN"
                 ;;
-            "53")
-                if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "dns" ]]; then
-                    status="[SCORED]"; color="$GREEN"
-                fi
+            "${SPLUNK_WEB_PORT:-8000}")
+                status="[SPLUNK WEB]"; color="$GREEN"
                 ;;
-            "3306")
-                if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "mysql" ]]; then
-                    status="[SCORED]"; color="$GREEN"
-                fi
+            "${SPLUNK_FORWARDER_PORT:-9997}")
+                status="[SPLUNK FWD]"; color="$GREEN"
                 ;;
-            "5432")
-                if [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "postgresql" ]] || [[ " ${ALLOWED_PROTOCOLS[*]} " =~ "pgsql" ]]; then
-                    status="[SCORED]"; color="$GREEN"
-                fi
+            "${SPLUNK_MGMT_PORT:-8089}")
+                status="[SPLUNK API]"; color="$GREEN"
                 ;;
             "$TRAP_PORT")
                 status="[TRAP]"; color="$CYAN"
@@ -209,10 +214,11 @@ draw_ports() {
 }
 
 draw_trap_logs() {
-    echo -e "${BOLD}[4] RECENT TRAP EVENTS${NC}"
+    echo -e "${BOLD}[5] RECENT TRAP EVENTS${NC}"
     echo "────────────────────────────────────────────────────"
     
-    local traps=$(dmesg 2>/dev/null | grep "TRAP_TRIGGERED" | tail -n 3)
+    # Check journalctl for firewalld logs
+    local traps=$(journalctl -k -n 50 2>/dev/null | grep "TRAP_TRIGGERED" | tail -n 3)
     if [ -n "$traps" ]; then
         echo -e "${RED}"
         echo "$traps" | awk -F'TRAP_TRIGGERED: ' '{print "   ⚠  " $2}'
@@ -224,7 +230,7 @@ draw_trap_logs() {
 }
 
 draw_users() {
-    echo -e "${BOLD}[5] USER ACTIVITY${NC}"
+    echo -e "${BOLD}[6] USER ACTIVITY${NC}"
     echo "────────────────────────────────────────────────────"
     
     # Logged in users
@@ -286,6 +292,17 @@ handle_input() {
             fi
             read -p "Press Enter to continue monitoring..."
             ;;
+        s|S)
+            echo ""
+            warn "Restarting Splunk..."
+            local splunk_bin="${SPLUNK_HOME:-/opt/splunk}/bin/splunk"
+            if [ -x "$splunk_bin" ]; then
+                "$splunk_bin" restart
+            else
+                warn "Splunk binary not found at $splunk_bin"
+            fi
+            read -p "Press Enter to continue monitoring..."
+            ;;
     esac
 }
 
@@ -306,7 +323,8 @@ while true; do
     
     # Draw dashboard
     draw_header
-    draw_banned
+    draw_splunk_status
+    draw_firewall_status
     draw_connections
     draw_ports
     draw_trap_logs

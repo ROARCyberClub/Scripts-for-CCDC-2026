@@ -1,20 +1,16 @@
 #!/bin/bash
 # ==============================================================================
-# CCDC CONFIGURATION FILE (vars.sh)
-# PURPOSE: Central configuration for all CCDC defense scripts
-# USAGE: Sourced by other scripts. Edit values below before running deploy.sh
+# CCDC CONFIGURATION FILE - SPLUNK SERVER (Oracle Linux 9)
+# PURPOSE: Log analysis and SIEM server configuration
+# FIREWALL: Uses firewalld (Oracle Linux 9 native)
+# USAGE: ./deploy.sh
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
 # 1. EXECUTION MODE
 # ------------------------------------------------------------------------------
-# Interactive mode: prompts for confirmation before dangerous actions
 INTERACTIVE="true"
-
-# Dry-run mode: shows what would happen without making changes
-DRY_RUN="true"
-
-# Verbose mode: show detailed logging output
+DRY_RUN="false"
 VERBOSE="true"
 
 # ------------------------------------------------------------------------------
@@ -23,16 +19,11 @@ VERBOSE="true"
 # IMPORTANT: Update this with actual scoreboard IPs before competition!
 SCOREBOARD_IPS=("10.0.0.1")
 
-# SSH Port: Auto-detected from sshd_config, or set manually here
-# To override auto-detection, uncomment and set:
-# OVERRIDE_SSH_PORT=2222
-
-# [LOGIC: DETERMINE FINAL SSH PORT]
-SSH_PORT=22 # Default fallback
+# SSH Port
+SSH_PORT=22
 if [ -n "$OVERRIDE_SSH_PORT" ]; then
     SSH_PORT=$OVERRIDE_SSH_PORT
 else
-    # Auto-detect from sshd_config (ignores commented lines)
     DETECTED=$(grep "^Port" /etc/ssh/sshd_config 2>/dev/null | head -n 1 | awk '{print $2}')
     if [ -n "$DETECTED" ]; then
         SSH_PORT=$DETECTED
@@ -40,59 +31,68 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 3. ALLOWED PROTOCOLS / PORTS
+# 3. ALLOWED PROTOCOLS / PORTS (Splunk-specific)
 # ------------------------------------------------------------------------------
-# Services that should be accessible from the network
-# Supported: ssh, http, https, dns, mysql, postgresql, pgsql, ftp, 
-#            smtp, pop3, imap, smb, samba, icmp
-ALLOWED_PROTOCOLS=("ssh" "http" "icmp")
+# Splunk needs: Web UI (8000), Forwarder (9997), Management (8089)
+ALLOWED_PROTOCOLS=(
+    "ssh"       # Remote management
+    "http"      # If reverse proxy used
+    "https"     # Secure access
+    "icmp"      # Ping for scoring
+)
+
+# Splunk-specific ports (will be added manually in firewall_safe.sh)
+# These are not standard protocols, need custom rules
+SPLUNK_WEB_PORT="8000"          # Splunk Web UI
+SPLUNK_FORWARDER_PORT="9997"    # Data receiving from forwarders
+SPLUNK_MGMT_PORT="8089"         # Management API
+SPLUNK_KV_PORT="8191"           # KV Store (if used)
 
 # ------------------------------------------------------------------------------
 # 4. PROTECTED SERVICES (Whitelist)
 # ------------------------------------------------------------------------------
-# These services will NOT be stopped by service_killer.sh
-# List BOTH Debian and RHEL names to be safe on any OS
+# Splunk services - DO NOT DISABLE
 PROTECTED_SERVICES=(
     # SSH (always protect)
     "ssh" "sshd"
     
-    # Web Servers
-    "apache2" "httpd"
-    "nginx"
+    # Splunk services
+    "splunk"
+    "splunkd"
+    "Splunkd"
     
-    # Databases
-    "mysqld" "mysql" "mariadb"
-    "postgresql" "pgsql"
+    # Splunk runs as its own service, protect it
+    "splunk.service"
 )
 
 # ------------------------------------------------------------------------------
 # 5. PROTECTED USERS (Whitelist)
 # ------------------------------------------------------------------------------
-# These users will NOT be kicked by init_setting.sh
-# The current admin user is automatically protected
 PROTECTED_USERS=(
     "root"
-    # Add competition-specific usernames here, e.g.:
-    # "sysadmin"
-    # "webadmin"
+    "splunk"        # Splunk service user
+    # Add competition-specific usernames here
 )
 
 # ------------------------------------------------------------------------------
 # 6. ENVIRONMENT
 # ------------------------------------------------------------------------------
-# Set to "true" if running in Docker environment
-# This prevents flushing FORWARD chain which breaks Docker networking
 USE_DOCKER="false"
-
-# Enable IPv6 firewall rules
 USE_IPV6="true"
+
+# Firewall type: firewalld for Oracle Linux 9 (NOT iptables)
+FIREWALL_TYPE="firewalld"
+
+# ------------------------------------------------------------------------------
+# 6.5. SPLUNK CONFIGURATION
+# ------------------------------------------------------------------------------
+SPLUNK_HOME="${SPLUNK_HOME:-/opt/splunk}"
 
 # ------------------------------------------------------------------------------
 # 7. SECURITY TRAPS (Honeypot)
 # ------------------------------------------------------------------------------
-# If an attacker touches TRAP_PORT, the system will block the IP
-TRAP_PORT="1025"
-BAN_TIME="60"  # Blocking time in seconds
+TRAP_PORT="23"      # Fake Telnet port
+BAN_TIME="120"      # Ban for 2 minutes
 
 # ------------------------------------------------------------------------------
 # 8. LOGGING
@@ -102,14 +102,11 @@ LOG_DIR="/var/log/ccdc"
 # ------------------------------------------------------------------------------
 # 9. FIREWALL SAFETY
 # ------------------------------------------------------------------------------
-# Auto-rollback timeout (seconds) - if you can't confirm new rules, 
-# firewall will revert to previous state
 FIREWALL_ROLLBACK_TIMEOUT=60
 
 # ------------------------------------------------------------------------------
 # 10. AUDIT SETTINGS
 # ------------------------------------------------------------------------------
-# Paths to check for backdoors
 AUDIT_CRON_PATHS=(
     "/etc/crontab"
     "/etc/cron.d"
@@ -118,7 +115,6 @@ AUDIT_CRON_PATHS=(
     "/var/spool/cron"
 )
 
-# Known good SUID binaries (skip these in audit)
 KNOWN_SUID_BINARIES=(
     "/usr/bin/sudo"
     "/usr/bin/passwd"
@@ -131,3 +127,8 @@ KNOWN_SUID_BINARIES=(
     "/usr/bin/newgrp"
     "/usr/bin/gpasswd"
 )
+
+# ==============================================================================
+# NOTE: Splunk ports are automatically added by firewall_safe.sh
+# Ports: 8000 (Web), 8089 (API), 9997 (Forwarders)
+# ==============================================================================

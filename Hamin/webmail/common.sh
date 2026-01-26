@@ -66,37 +66,45 @@ log_error()   { log "ERROR" "$1"; }
 log_action()  { log "ACTION" "$1"; }
 
 # ------------------------------------------------------------------------------
-# 4. OUTPUT FUNCTIONS (Console)
+# 4. OUTPUT FUNCTIONS (Console) - WITH TIMESTAMPS FOR CCDC REPORTS
 # ------------------------------------------------------------------------------
 
-# Print with prefix and color
+# Get current timestamp
+get_timestamp() {
+    date '+%H:%M:%S'
+}
+
+# Print with prefix, timestamp, and color
 # Usage: print_msg "INFO" "Message" "$GREEN"
 print_msg() {
     local prefix="$1"
     local message="$2"
     local color="${3:-$NC}"
-    echo -e "${color}[${prefix}]${NC} ${message}"
+    local ts=$(get_timestamp)
+    echo -e "${WHITE}[${ts}]${NC} ${color}[${prefix}]${NC} ${message}"
 }
 
-# Convenience wrappers
+# Convenience wrappers (all include timestamps)
 info()    { print_msg "*" "$1" "$CYAN"; log_info "$1"; }
 success() { print_msg "OK" "$1" "$GREEN"; log_info "$1"; }
 warn()    { print_msg "!" "$1" "$YELLOW"; log_warn "$1"; }
 error()   { print_msg "ERROR" "$1" "$RED"; log_error "$1"; }
 action()  { print_msg "ACTION" "$1" "$MAGENTA"; log_action "$1"; }
 
-# Print section header
+# Print section header with timestamp
 header() {
     local title="$1"
+    local ts=$(get_timestamp)
     echo ""
     echo -e "${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${BLUE}  $title${NC}"
+    echo -e "${WHITE}[${ts}]${NC} ${BOLD}${BLUE}$title${NC}"
     echo -e "${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
-# Print sub-section
+# Print sub-section with timestamp
 subheader() {
-    echo -e "\n${BOLD}[${1}]${NC}"
+    local ts=$(get_timestamp)
+    echo -e "\n${WHITE}[${ts}]${NC} ${BOLD}[${1}]${NC}"
 }
 
 # ------------------------------------------------------------------------------
@@ -260,6 +268,70 @@ restore_iptables() {
     if [ -f "${rollback_path}/ip6tables.rules" ]; then
         ip6tables-restore < "${rollback_path}/ip6tables.rules"
         info "Restored ip6tables from: $rollback_path"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 7.5. FIREWALLD SUPPORT (Fedora 42)
+# ------------------------------------------------------------------------------
+
+# Save firewalld rules for rollback
+backup_firewalld() {
+    local rollback_path="$1"
+    
+    if is_dry_run; then
+        info "[DRY-RUN] Would backup firewalld rules"
+        return 0
+    fi
+    
+    if ! command_exists firewall-cmd; then
+        warn "firewall-cmd not found"
+        return 1
+    fi
+    
+    firewall-cmd --list-all --permanent > "${rollback_path}/firewalld.conf" 2>/dev/null
+    firewall-cmd --list-ports --permanent > "${rollback_path}/firewalld-ports.txt" 2>/dev/null
+    firewall-cmd --list-services --permanent > "${rollback_path}/firewalld-services.txt" 2>/dev/null
+    firewall-cmd --list-rich-rules --permanent > "${rollback_path}/firewalld-rich-rules.txt" 2>/dev/null
+    
+    info "Backed up firewalld rules to: $rollback_path"
+}
+
+# Restore firewalld from backup
+restore_firewalld() {
+    local rollback_path="$1"
+    
+    if ! command_exists firewall-cmd; then
+        warn "firewall-cmd not found"
+        return 1
+    fi
+    
+    if [ -f "${rollback_path}/firewalld-ports.txt" ]; then
+        for port in $(firewall-cmd --list-ports --permanent 2>/dev/null); do
+            firewall-cmd --permanent --remove-port="$port" 2>/dev/null
+        done
+        
+        while read -r port; do
+            [ -n "$port" ] && firewall-cmd --permanent --add-port="$port" 2>/dev/null
+        done < "${rollback_path}/firewalld-ports.txt"
+    fi
+    
+    firewall-cmd --reload 2>/dev/null
+    info "Restored firewalld from: $rollback_path"
+}
+
+# Run firewall-cmd with dry-run support
+run_firewall_cmd() {
+    local cmd="$1"
+    
+    if [ "$DRY_RUN" == "true" ]; then
+        echo -e "${CYAN}[DRY-RUN]${NC} Would execute: firewall-cmd $cmd"
+        log_info "[DRY-RUN] firewall-cmd $cmd"
+        return 0
+    else
+        log_action "Executing: firewall-cmd $cmd"
+        eval "firewall-cmd $cmd"
+        return $?
     fi
 }
 

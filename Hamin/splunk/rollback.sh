@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# SCRIPT: rollback.sh (Configuration Rollback)
+# SCRIPT: rollback.sh (Configuration Rollback - firewalld)
 # PURPOSE: Restore system to a previous state from backup
 # USAGE: sudo ./rollback.sh [backup_path]
 # ==============================================================================
@@ -47,7 +47,7 @@ find_backups() {
             count=$((count + 1))
             local name=$(basename "$backup")
             echo "  [$count] $backup"
-            echo "      Type: Firewall rules"
+            echo "      Type: Firewall rules (firewalld)"
             echo ""
         fi
     done
@@ -67,20 +67,19 @@ find_backups() {
 rollback_firewall() {
     local backup_path="$1"
     
-    subheader "Firewall Rollback"
+    subheader "Firewall Rollback (firewalld)"
     
-    if [ -f "${backup_path}/iptables.rules" ]; then
-        info "Restoring IPv4 firewall rules..."
-        iptables-restore < "${backup_path}/iptables.rules"
-        success "IPv4 rules restored"
+    if [ -f "${backup_path}/firewalld-ports.txt" ]; then
+        restore_firewalld "$backup_path"
+        success "Firewall rules restored"
     else
-        warn "No IPv4 rules found in backup"
-    fi
-    
-    if [ -f "${backup_path}/ip6tables.rules" ]; then
-        info "Restoring IPv6 firewall rules..."
-        ip6tables-restore < "${backup_path}/ip6tables.rules"
-        success "IPv6 rules restored"
+        warn "No firewalld backup found in $backup_path"
+        
+        # Check for iptables backup
+        if [ -f "${backup_path}/iptables.rules" ]; then
+            info "Found iptables backup, restoring..."
+            restore_iptables "$backup_path"
+        fi
     fi
 }
 
@@ -115,11 +114,10 @@ rollback_config() {
             "group")        target="/etc/group" ;;
             "sudoers")      target="/etc/sudoers" ;;
             "sudoers.d")    target="/etc/sudoers.d" ;;
-            "apache2")      target="/etc/apache2" ;;
-            "httpd")        target="/etc/httpd" ;;
-            "nginx")        target="/etc/nginx" ;;
-            "mysql")        target="/etc/mysql" ;;
-            "my.cnf.d")     target="/etc/my.cnf.d" ;;
+            # Splunk paths
+            "local")        target="${SPLUNK_HOME:-/opt/splunk}/etc/system/local" ;;
+            "apps")         target="${SPLUNK_HOME:-/opt/splunk}/etc/apps" ;;
+            "users")        target="${SPLUNK_HOME:-/opt/splunk}/etc/users" ;;
         esac
         
         if [ -n "$target" ]; then
@@ -139,13 +137,18 @@ rollback_config() {
     # Restart affected services
     echo ""
     if confirm "Restart SSH service?" "y"; then
-        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || service ssh restart 2>/dev/null
+        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
         success "SSH restarted"
+    fi
+    
+    if confirm "Restart Splunk?" "y"; then
+        "${SPLUNK_HOME:-/opt/splunk}/bin/splunk" restart 2>/dev/null
+        success "Splunk restarted"
     fi
 }
 
 # ------------------------------------------------------------------------------
-# 3. PANIC ROLLBACK (Quick Firewall Reset)
+# 3. PANIC ROLLBACK (Reset firewalld to trusted)
 # ------------------------------------------------------------------------------
 
 panic_rollback() {
@@ -158,25 +161,11 @@ panic_rollback() {
         exit 0
     fi
     
-    # Reset to accept all
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
-    iptables -F
-    iptables -X
-    iptables -t nat -F
-    iptables -t nat -X
-    iptables -t mangle -F
-    iptables -t mangle -X
+    # Set zone to trusted (allow all)
+    firewall-cmd --set-default-zone=trusted
+    firewall-cmd --reload
     
-    # Same for IPv6
-    ip6tables -P INPUT ACCEPT 2>/dev/null
-    ip6tables -P FORWARD ACCEPT 2>/dev/null
-    ip6tables -P OUTPUT ACCEPT 2>/dev/null
-    ip6tables -F 2>/dev/null
-    ip6tables -X 2>/dev/null
-    
-    success "Firewall completely opened!"
+    success "Firewall set to trusted zone (all traffic allowed)!"
     warn "System is now UNPROTECTED. Apply proper rules ASAP!"
 }
 
@@ -185,7 +174,7 @@ panic_rollback() {
 # ------------------------------------------------------------------------------
 
 print_banner "2.0"
-header "ROLLBACK UTILITY"
+header "ROLLBACK UTILITY (firewalld)"
 
 # Check if specific backup path provided
 if [ -n "$1" ]; then

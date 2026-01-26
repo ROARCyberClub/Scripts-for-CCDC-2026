@@ -2,12 +2,55 @@
 
 Interactive Linux hardening and monitoring scripts for Collegiate Cyber Defense Competition.
 
+## Folder Structure
+
+```
+Hamin/
+├── ecom/              # Ubuntu 24 - E-commerce Server (iptables)
+│   ├── vars.sh        # Ecom-specific config (HTTP, HTTPS, MySQL)
+│   ├── deploy.sh      # Main deployment script
+│   └── ...            # All hardening scripts
+├── webmail/           # Fedora 42 - Mail Server (firewalld)
+│   ├── vars.sh        # Webmail-specific config (SMTP, IMAP, POP3)
+│   ├── deploy.sh
+│   └── ...
+├── splunk/            # Oracle Linux 9 - SIEM Server (firewalld)
+│   ├── vars.sh        # Splunk-specific config (ports 8000, 9997)
+│   ├── deploy.sh
+│   └── ...
+├── wkst/              # Ubuntu 24 - Workstation (iptables)
+│   ├── vars.sh        # Minimal config (SSH only)
+│   ├── deploy.sh
+│   └── ...
+├── GIT_WORKFLOW.md    # Git branch strategy
+└── README.md          # This file
+```
+
 ## Quick Start
 
 ```bash
+# 1. Clone specific server branch
+git clone -b server/ecom --single-branch <repo_url>
+
+# 2. Navigate to server folder
+cd Scripts-for-CCDC-2026/Hamin/ecom
+
+# 3. Update Scoreboard IP in vars.sh
+nano vars.sh
+
+# 4. Run deployment
 chmod +x *.sh
 sudo ./deploy.sh
 ```
+
+## Server Assignments
+
+| Server | OS | Folder | Firewall | Ports |
+|--------|-----|--------|----------|-------|
+| Ecom | Ubuntu 24 | `ecom/` | ufw | 22, 80, 443, 3306 |
+| Webmail | Fedora 42 | `webmail/` | firewalld | 22, 25, 80, 110, 143, 443 |
+| Splunk | Oracle 9 | `splunk/` | firewalld | 22, 8000, 8089, 9997 |
+| Wkst | Ubuntu 24 | `wkst/` | ufw | 22 |
 
 ## Features
 
@@ -17,12 +60,12 @@ sudo ./deploy.sh
 - **Auto-Rollback**: Firewall reverts if SSH access is lost
 - **Backdoor Detection**: Audit for persistence mechanisms
 
-## Scripts
+## Scripts (in each server folder)
 
 | Script | Purpose |
 |--------|---------|
 | `deploy.sh` | Main entry point - runs all scripts in sequence |
-| `vars.sh` | Configuration file - edit before running |
+| `vars.sh` | Server-specific configuration |
 | `common.sh` | Shared utilities (prompts, logging, colors) |
 | `init_setting.sh` | Password reset, user cleanup, SSH key removal |
 | `firewall_safe.sh` | iptables/ip6tables with whitelist rules |
@@ -45,22 +88,21 @@ sudo ./deploy.sh --dry-run
 sudo ./deploy.sh --auto
 
 # Run individual scripts
-sudo ./firewall_safe.sh
 sudo ./audit.sh --report
 
 # Emergency reset
 sudo ./panic.sh
 ```
 
-## Configuration (vars.sh)
+## Git Branch Workflow
 
-Edit before running:
+See [GIT_WORKFLOW.md](GIT_WORKFLOW.md) for detailed branch strategy.
 
 ```bash
-SCOREBOARD_IPS=("10.20.30.1")      # Update with real IPs!
-ALLOWED_PROTOCOLS=("ssh" "http")   # Services to allow
-PROTECTED_SERVICES=("sshd" "nginx") # Don't disable these
-TRAP_PORT="1025"                   # Honeypot port
+# Create server branches
+git checkout -b server/ecom && git push -u origin server/ecom
+git checkout main && git checkout -b server/webmail && git push -u origin server/webmail
+git checkout main && git checkout -b server/splunk && git push -u origin server/splunk
 ```
 
 ## Monitor Controls

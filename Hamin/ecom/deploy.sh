@@ -173,7 +173,23 @@ header "INSTALLING DEPENDENCIES"
 
 info "Installing essential tools (net-tools, iptables)..."
 
-if ! is_dry_run; then
+# Check Internet Connection
+check_internet() {
+    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+ONLINE_MODE="true"
+if ! check_internet; then
+    warn "No internet connection detected (Offline Mode)."
+    warn "Skipping package installation. Please ensure tools are pre-installed."
+    ONLINE_MODE="false"
+fi
+
+if [ "$ONLINE_MODE" == "true" ] && ! is_dry_run; then
     case "$PKG_MANAGER" in
         "apt-get")
             apt-get update -y > /dev/null 2>&1
@@ -189,9 +205,11 @@ if ! is_dry_run; then
             zypper install -y net-tools iproute2 iptables > /dev/null 2>&1
             ;;
     esac
+elif [ "$ONLINE_MODE" == "true" ] && is_dry_run; then
+    info "[DRY-RUN] Would install packages using $PKG_MANAGER"
 fi
 
-success "Dependencies ready."
+success "Dependencies check complete."
 
 # ------------------------------------------------------------------------------
 # 7. EXECUTION SEQUENCE
