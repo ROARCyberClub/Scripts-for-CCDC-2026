@@ -139,9 +139,9 @@ echo "    • Kick suspicious users (keeping current admin)"
 echo "    • Remove SSH authorized_keys"
 echo ""
 echo "  ${CYAN}Step 2: Firewall Setup (firewall_safe.sh)${NC}"
-echo "    • Configure iptables with whitelist rules"
+echo "    • Configure firewalld with whitelist rules"
 if [ "$USE_IPV6" == "true" ]; then
-    echo "    • Configure ip6tables for IPv6"
+    echo "    • Configure IPv6 firewall rules"
 fi
 echo "    • Set up honeypot trap on port $TRAP_PORT"
 echo ""
@@ -171,7 +171,7 @@ fi
 # ------------------------------------------------------------------------------
 header "INSTALLING DEPENDENCIES"
 
-info "Installing essential tools (net-tools, iptables)..."
+info "Installing essential tools (net-tools, firewalld)..."
 
 # Check Internet Connection
 check_internet() {
@@ -196,7 +196,7 @@ if [ "$ONLINE_MODE" == "true" ] && ! is_dry_run; then
             apt-get install -y net-tools iproute2 iptables > /dev/null 2>&1
             ;;
         "dnf"|"yum")
-            $PKG_MANAGER install -y net-tools iproute iptables-services > /dev/null 2>&1
+            $PKG_MANAGER install -y net-tools iproute firewalld > /dev/null 2>&1
             ;;
         "pacman")
             pacman -Sy --noconfirm net-tools iproute2 iptables > /dev/null 2>&1
@@ -261,6 +261,18 @@ if [ -f "./service_killer.sh" ]; then
     fi
 else
     error "service_killer.sh not found!"
+fi
+
+# Step 4: Splunk Forwarding
+header "STEP 4: LOG FORWARDING"
+if [ "$INTERACTIVE" == "true" ]; then
+    if confirm "Enable forwarding system logs to Splunk ($SPLUNK_SERVER_IP)?" "y"; then
+        setup_splunk_forwarding
+    else
+        warn "Skipping log forwarding."
+    fi
+else
+    setup_splunk_forwarding
 fi
 
 # ------------------------------------------------------------------------------

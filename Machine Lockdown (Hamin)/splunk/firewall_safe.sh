@@ -210,6 +210,11 @@ if [ -n "$SPLUNK_KV_PORT" ]; then
     success "Splunk KV Store: ${SPLUNK_KV_PORT}"
 fi
 
+# Syslog Reception (UDP & TCP)
+run_firewall_cmd "--permanent --add-port=${SPLUNK_SYSLOG_PORT:-514}/udp"
+run_firewall_cmd "--permanent --add-port=${SPLUNK_SYSLOG_PORT:-514}/tcp"
+success "Syslog Reception: ${SPLUNK_SYSLOG_PORT:-514} (UDP/TCP)"
+
 # ------------------------------------------------------------------------------
 # 10. HONEYPOT TRAP (Rich Rule)
 # ------------------------------------------------------------------------------

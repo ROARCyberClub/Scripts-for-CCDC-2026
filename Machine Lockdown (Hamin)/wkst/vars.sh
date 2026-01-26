@@ -18,6 +18,12 @@ VERBOSE="true"
 # ------------------------------------------------------------------------------
 SCOREBOARD_IPS=("10.0.0.1")
 
+# Topology IPs (CCDC 2026)
+SPLUNK_SERVER_IP="172.20.242.20"
+GATEWAY_IP="172.20.242.254"     # Palo Alto Inside
+AD_DNS_IP="172.20.240.102"      # AD/DNS
+
+
 SSH_PORT=22
 if [ -n "$OVERRIDE_SSH_PORT" ]; then
     SSH_PORT=$OVERRIDE_SSH_PORT

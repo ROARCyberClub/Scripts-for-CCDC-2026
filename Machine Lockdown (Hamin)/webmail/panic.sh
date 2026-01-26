@@ -16,13 +16,13 @@ echo " Resetting firewalld to ALLOW ALL..."
 echo "--------------------------------------------------------"
 
 if ! command -v firewall-cmd &> /dev/null; then
-    echo "[!] firewall-cmd not found, trying iptables fallback..."
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
-    iptables -F
-    iptables -X
-    echo "[OK] iptables flushed."
+    echo "[!] firewall-cmd not found, trying nftables fallback..."
+    if command -v nft &> /dev/null; then
+        nft flush ruleset
+        echo "[OK] nftables flushed."
+    else
+        echo "[!] nftables not found either. Manual intervention required."
+    fi
     exit 0
 fi
 

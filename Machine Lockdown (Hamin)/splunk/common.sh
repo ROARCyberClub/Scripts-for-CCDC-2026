@@ -242,34 +242,6 @@ create_rollback_point() {
     echo "$rollback_path"
 }
 
-# Save iptables rules for rollback
-backup_iptables() {
-    local rollback_path="$1"
-    
-    if is_dry_run; then
-        info "[DRY-RUN] Would backup iptables rules"
-        return 0
-    fi
-    
-    iptables-save > "${rollback_path}/iptables.rules" 2>/dev/null
-    ip6tables-save > "${rollback_path}/ip6tables.rules" 2>/dev/null
-    info "Backed up iptables rules to: $rollback_path"
-}
-
-# Restore iptables from backup
-restore_iptables() {
-    local rollback_path="$1"
-    
-    if [ -f "${rollback_path}/iptables.rules" ]; then
-        iptables-restore < "${rollback_path}/iptables.rules"
-        info "Restored iptables from: $rollback_path"
-    fi
-    
-    if [ -f "${rollback_path}/ip6tables.rules" ]; then
-        ip6tables-restore < "${rollback_path}/ip6tables.rules"
-        info "Restored ip6tables from: $rollback_path"
-    fi
-}
 
 # ------------------------------------------------------------------------------
 # 7.5. FIREWALLD SUPPORT (Oracle Linux 9)

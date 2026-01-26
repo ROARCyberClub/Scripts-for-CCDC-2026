@@ -57,8 +57,8 @@ TARGET_SERVICES=(
     # Mail
     "postfix" "exim4" "sendmail" "dovecot"
     
-    # Conflicting Firewalls (We use iptables directly)
-    "ufw" "firewalld"
+    # Conflicting Firewalls (We use firewalld on this system)
+    "ufw"
     
     # Network & Bloat
     "avahi-daemon" "avahi" "mdns"

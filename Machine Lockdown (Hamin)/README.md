@@ -1,119 +1,63 @@
-# CCDC Defense Toolkit v2.0
+# CCDC 2026 Machine Lockdown Scripts
 
-Interactive Linux hardening and monitoring scripts for Collegiate Cyber Defense Competition.
+**Automated Defense & Hardening Toolkit** for Linux servers in **CCDC (Collegiate Cyber Defense Competition) 2026**.
+This project is intended to quickly and securely "Lockdown" multiple servers within a limited timeframe.
 
-## Folder Structure
+---
 
-```
-Hamin/
-├── ecom/              # Ubuntu 24 - E-commerce Server (iptables)
-│   ├── vars.sh        # Ecom-specific config (HTTP, HTTPS, MySQL)
-│   ├── deploy.sh      # Main deployment script
-│   └── ...            # All hardening scripts
-├── webmail/           # Fedora 42 - Mail Server (firewalld)
-│   ├── vars.sh        # Webmail-specific config (SMTP, IMAP, POP3)
-│   ├── deploy.sh
-│   └── ...
-├── splunk/            # Oracle Linux 9 - SIEM Server (firewalld)
-│   ├── vars.sh        # Splunk-specific config (ports 8000, 9997)
-│   ├── deploy.sh
-│   └── ...
-├── wkst/              # Ubuntu 24 - Workstation (iptables)
-│   ├── vars.sh        # Minimal config (SSH only)
-│   ├── deploy.sh
-│   └── ...
-├── GIT_WORKFLOW.md    # Git branch strategy
-└── README.md          # This file
-```
+## 🌟 Key Features
 
-## Quick Start
+### 1. One-Click Deployment
+Simply executing the `deploy.sh` script in each server folder (`ecom`, `webmail`, `splunk`, `wkst`) automates the entire process from **initial setup to monitoring**.
 
-```bash
-# 1. Clone specific server branch
-git clone -b server/ecom --single-branch <repo_url>
+### 2. Intelligent Context Awareness
+*   **Offline Mode**: Automatically detects if internet connectivity is lost, skipping package installations and only applying configuration changes.
+*   **OS Detection**: Automatically distinguishes between Ubuntu (`apt`), RHEL/CentOS (`dnf`), and Legacy (`yum`) to execute appropriate commands.
+*   **Service Protection**: Identifies essential services for each role (`apache2`, `mysql`, `splunkd`, etc.) and protects them from being terminated.
 
-# 2. Navigate to server folder
-cd Scripts-for-CCDC-2026/Hamin/ecom
+### 3. Centralized Logging (Splunk Integration)
+All clients (Ecom, Webmail, Wkst) automatically **forward system logs to the Splunk server** immediately upon deployment.
+*   You can detect intrusion attempts (SSH Brute Force, Sudo abuse, etc.) in real-time centrally.
 
-# 3. Update Scoreboard IP in vars.sh
-nano vars.sh
+### 4. Powerful Backdoor Detection (Persistence Hunter)
+`audit.sh` can find hidden system backdoors and **automatically neutralize** them.
+*   **Detection Items**: Malicious Cron jobs, unknown SUID binaries, UID 0 accounts, SSH keys, Reverse Shell processes, etc.
+*   **Auto-Fix**: The `--fix` option immediately removes detected threats.
 
-# 4. Run deployment
-chmod +x *.sh
-sudo ./deploy.sh
-```
+### 5. Router Hardening (VyOS)
+The `wkst/router/` folder contains scripts for VyOS router configuration. Entering your team number will generate configuration commands that can be applied immediately.
 
-## Server Assignments
+---
 
-| Server | OS | Folder | Firewall | Ports |
-|--------|-----|--------|----------|-------|
-| Ecom | Ubuntu 24 | `ecom/` | ufw | 22, 80, 443, 3306 |
-| Webmail | Fedora 42 | `webmail/` | firewalld | 22, 25, 80, 110, 143, 443 |
-| Splunk | Oracle 9 | `splunk/` | firewalld | 22, 8000, 8089, 9997 |
-| Wkst | Ubuntu 24 | `wkst/` | ufw | 22 |
+## 📂 Directory Structure
 
-## Features
+*   **`ecom/`**: For Ecom Server (Apache, MySQL)
+*   **`webmail/`**: For Webmail Server (Postfix, Dovecot)
+*   **`splunk/`**: For Splunk Server (Log Receiver)
+    *   Includes `configure_receiver.sh` (Log reception setup)
+*   **`wkst/`**: For Workstation & Router setup
+    *   `router/`: Includes VyOS hardening scripts
 
-- **Interactive Mode**: Confirmation prompts before dangerous actions
-- **Dry-Run Mode**: Preview changes without applying (`--dry-run`)
-- **IPv6 Support**: Firewall rules for both IPv4 and IPv6
-- **Auto-Rollback**: Firewall reverts if SSH access is lost
-- **Backdoor Detection**: Audit for persistence mechanisms
+---
 
-## Scripts (in each server folder)
+## 🚀 Workflow
 
-| Script | Purpose |
-|--------|---------|
-| `deploy.sh` | Main entry point - runs all scripts in sequence |
-| `vars.sh` | Server-specific configuration |
-| `common.sh` | Shared utilities (prompts, logging, colors) |
-| `init_setting.sh` | Password reset, user cleanup, SSH key removal |
-| `firewall_safe.sh` | iptables/ip6tables with whitelist rules |
-| `service_killer.sh` | Disable risky services |
-| `monitor.sh` | Real-time defense dashboard |
-| `audit.sh` | Backdoor & persistence detection |
-| `rollback.sh` | Restore from backup |
-| `panic.sh` | Emergency firewall reset |
+1.  **Splunk Server Setup**
+    *   Go to `splunk/` -> `sudo ./configure_receiver.sh` (Enable log reception)
+    *   `sudo ./deploy.sh` (Start defense)
 
-## Usage Examples
+2.  **Other Servers Setup (Ecom, Webmail, Wkst)**
+    *   Go to each folder -> `sudo ./deploy.sh`
+    *   Follow on-screen instructions for basic setup (Password change, etc.).
 
-```bash
-# Full interactive deployment
-sudo ./deploy.sh
+3.  **Continuous Security Audit**
+    *   Periodically run `sudo ./audit.sh --fix` on each server to check for new backdoors.
 
-# Preview what would happen (no changes)
-sudo ./deploy.sh --dry-run
+---
 
-# Non-interactive (automated)
-sudo ./deploy.sh --auto
+## ⚠️ Emergency Response
 
-# Run individual scripts
-sudo ./audit.sh --report
-
-# Emergency reset
-sudo ./panic.sh
-```
-
-## Git Branch Workflow
-
-See [GIT_WORKFLOW.md](GIT_WORKFLOW.md) for detailed branch strategy.
-
-```bash
-# Create server branches
-git checkout -b server/ecom && git push -u origin server/ecom
-git checkout main && git checkout -b server/webmail && git push -u origin server/webmail
-git checkout main && git checkout -b server/splunk && git push -u origin server/splunk
-```
-
-## Monitor Controls
-
-| Key | Action |
-|-----|--------|
-| `q` | Quit |
-| `p` | Panic mode |
-| `r` | Refresh |
-| `a` | Run audit |
-
-## Logs
-
-All actions are logged to `/var/log/ccdc/`
+What if a service stops working?
+1.  **Restart Service**: `systemctl restart <service_name>`
+2.  **Reset Firewall**: `iptables -F` (Delete all rules - Last Resort)
+3.  **Restore Backup**: Each script backs up key configuration files before execution. Check the `/root/ccdc_backup_...` folder.

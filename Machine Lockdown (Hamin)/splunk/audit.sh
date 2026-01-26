@@ -2,7 +2,7 @@
 # ==============================================================================
 # SCRIPT: audit.sh (Security Audit & Backdoor Detection)
 # PURPOSE: Scan system for persistence mechanisms, backdoors, and anomalies
-# USAGE: sudo ./audit.sh [--quick] [--report]
+# USAGE: sudo ./audit.sh [--quick] [--report] [--fix]
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,12 +19,14 @@ require_root
 # ------------------------------------------------------------------------------
 QUICK_MODE="false"
 GENERATE_REPORT="false"
+AUTO_FIX="false"
 REPORT_FILE=""
 
 for arg in "$@"; do
     case $arg in
         --quick)   QUICK_MODE="true" ;;
         --report)  GENERATE_REPORT="true" ;;
+        --fix)     AUTO_FIX="true" ;;
     esac
 done
 
@@ -74,6 +76,16 @@ audit_uid0() {
         else
             report "   ${RED}✗ CRITICAL: $user has UID 0 (possible backdoor!)${NC}"
             add_critical "UID 0 user found: $user"
+            
+            if [ "$AUTO_FIX" == "true" ]; then
+                info "   [FIX] Locking account $user..."
+                passwd -l "$user" 2>/dev/null
+                info "   [FIX] Changing UID to 9999..."
+                usermod -u 9999 "$user" 2>/dev/null
+                success "   Account $user neutralized."
+            else
+                report "   [HINT] Use --fix to lock this account."
+            fi
         fi
     done
 }
@@ -88,6 +100,12 @@ audit_passwords() {
         for user in $empty; do
             report "   ${RED}✗ WARNING: $user has NO PASSWORD${NC}"
             add_critical "Empty password: $user"
+            
+            if [ "$AUTO_FIX" == "true" ]; then
+                info "   [FIX] Locking account $user..."
+                passwd -l "$user" 2>/dev/null
+                success "   Account $user locked."
+            fi
         done
     else
         report "   ${GREEN}✓${NC} No accounts with empty passwords"
@@ -166,6 +184,8 @@ audit_cron() {
     report ""
     report "   Checking for suspicious patterns..."
     
+    local fix_applied="false"
+    
     for cron_path in /etc/crontab /etc/cron.d/* /var/spool/cron/crontabs/*; do
         [ -f "$cron_path" ] || continue
         
@@ -175,8 +195,26 @@ audit_cron() {
             report "   ${RED}✗ CRITICAL: Suspicious command in $cron_path${NC}"
             report "     $sus"
             add_critical "Suspicious cron in $cron_path"
+            
+            if [ "$AUTO_FIX" == "true" ]; then
+                info "   [FIX] Commenting out suspicious lines in $cron_path..."
+                sed -i '/bash -i/s/^/# CCDC_BLOCK /' "$cron_path"
+                sed -i '/\/dev\/tcp/s/^/# CCDC_BLOCK /' "$cron_path"
+                sed -i '/nc /s/^/# CCDC_BLOCK /' "$cron_path"
+                sed -i '/ncat /s/^/# CCDC_BLOCK /' "$cron_path"
+                sed -i '/curl.*|/s/^/# CCDC_BLOCK /' "$cron_path"
+                sed -i '/wget.*|/s/^/# CCDC_BLOCK /' "$cron_path"
+                
+                success "   Suspicious lines disabled."
+                fix_applied="true"
+            fi
         fi
     done
+    
+    if [ "$fix_applied" == "true" ]; then
+        info "   [INFO] Restarting cron service to apply changes..."
+        systemctl restart cron 2>/dev/null || systemctl restart crond 2>/dev/null
+    fi
 }
 
 # 3.5 Check systemd timers
@@ -222,6 +260,12 @@ audit_suid() {
         if [ "$is_known" == "false" ]; then
             report "   ${YELLOW}! Unknown SUID: $file${NC}"
             add_warning "Unknown SUID: $file"
+            
+            if [ "$AUTO_FIX" == "true" ]; then
+                info "   [FIX] Removing SUID bit from $file..."
+                chmod u-s "$file"
+                success "   SUID bit removed."
+            fi
         fi
     done
     
@@ -310,6 +354,13 @@ audit_processes() {
         echo "$sus_procs" | while read line; do
             report "     $line"
             add_critical "Suspicious process: $line"
+            
+            if [ "$AUTO_FIX" == "true" ]; then
+                local pid=$(echo "$line" | awk '{print $2}')
+                info "   [FIX] Killing suspicious process $pid..."
+                kill -9 "$pid" 2>/dev/null
+                success "   Process killed."
+            fi
         done
     else
         report "   ${GREEN}✓${NC} No obvious backdoor processes"
@@ -329,6 +380,11 @@ audit_temp_dirs() {
                 report "   ${YELLOW}! $dir has $exec_count executable file(s)${NC}"
                 find "$dir" -type f -executable 2>/dev/null | head -n 5 | while read f; do
                     report "     - $f"
+                    
+                    if [ "$AUTO_FIX" == "true" ]; then
+                         info "     [FIX] Removing execution permissions from $f"
+                         chmod -x "$f"
+                    fi
                 done
                 add_warning "Executables in $dir"
             else
@@ -342,8 +398,12 @@ audit_temp_dirs() {
 # 4. MAIN EXECUTION
 # ------------------------------------------------------------------------------
 
-print_banner "2.0"
+print_banner "2.1 (Auto-Fix)"
 header "SECURITY AUDIT"
+
+if [ "$AUTO_FIX" == "true" ]; then
+    warn "Running in AUTO-FIX mode. Backdoors will be neutralized!"
+fi
 
 if [ "$QUICK_MODE" == "true" ]; then
     info "Running in QUICK mode (some checks skipped)"

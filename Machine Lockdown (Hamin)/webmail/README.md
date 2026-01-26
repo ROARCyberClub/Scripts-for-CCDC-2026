@@ -1,53 +1,81 @@
-# Webmail Server (Fedora 42)
+# CCDC Defense Deployment (Webmail Server)
 
-Mail server (Postfix/Dovecot) - firewalld-based security scripts
+Automated defense and hardening scripts for the **Webmail Server** (Postfix/Dovecot/Apache).
+This package is designed to quickly implement essential security measures, remove backdoors, and provide real-time monitoring in a CCDC competition environment.
 
-## Quick Start
+## 🚀 Quick Start
 
-```bash
-chmod +x *.sh
-sudo ./deploy.sh
-```
+Open a terminal and run the following commands:
 
-## Server Info
+1. **Grant Execution Permissions**
+   ```bash
+   chmod +x *.sh
+   ```
 
-| Item | Value |
-|------|-------|
-| **OS** | Fedora 42 |
-| **Firewall** | firewalld (native) |
-| **Services** | Postfix, Dovecot, Roundcube |
-| **Ports** | 22(SSH), 25(SMTP), 80(HTTP), 110(POP3), 143(IMAP), 443(HTTPS) |
+2. **Run Automated Deployment (Recommended)**
+   ```bash
+   sudo ./deploy.sh
+   ```
+   *   This executes **initial setup, firewall configuration, service cleanup, and log forwarding** based on `vars.sh`.
+   *   You can choose to proceed interactively via the menu.
 
-## Features
+3. **Backdoor Detection & Removal**
+   ```bash
+   # Generate detection report
+   sudo ./audit.sh --report
 
-- **Automatic Mail Port Configuration** - SMTP, IMAP, POP3 on deploy
-- **Mail Config Backup** - /etc/postfix, /etc/dovecot auto backup
-- **Real-time Monitoring** - Mail service status dashboard
-- **firewalld Support** - Fedora native
+   # [CAUTION] Automatically remove detected backdoors
+   sudo ./audit.sh --fix
+   ```
 
-## Pre-Competition Checklist
+---
 
-1. Update `SCOREBOARD_IPS` in `vars.sh`
-2. Preview with `sudo ./deploy.sh --dry-run`
-3. Run `sudo ./deploy.sh`
+## 📂 File Structure & Description
 
-## Monitor Shortcuts
+### 1. Core Scripts
+*   **`deploy.sh`**: The control tower that orchestrates the entire defense process. It detects internet connectivity to operate in offline mode if necessary and runs other scripts sequentially.
+*   **`vars.sh`**: **(IMPORTANT)** The server's environment variable configuration file.
+    *   `PROTECTED_SERVICES`: List of services that must not be killed (e.g., `postfix`, `dovecot`, `httpd`).
+    *   `SPLUNK_SERVER_IP`: IP of the Splunk server to forward logs to (`172.20.242.20`).
+    *   `ALLOWED_PROTOCOLS`: List of allowed ports (includes SMTP, IMAP, POP3).
+*   **`common.sh`**: A common function library. Includes the log forwarding function (`setup_splunk_forwarding`).
 
-| Key | Action |
-|-----|--------|
-| `q` | Quit |
-| `p` | Panic (open firewall) |
-| `r` | Refresh |
-| `a` | Security audit |
-| `m` | Restart mail services |
+### 2. Functional Scripts
+*   **`init_setting.sh`**: Performs initial hardening.
+    *   Changes passwords for all users (except the current admin).
+    *   Removes SSH `authorized_keys` (eliminates key-based backdoors).
+    *   Backs up configuration files.
+*   **`firewall_safe.sh`**: Configures the firewall (firewalld).
+    *   Applies whitelist-based blocking policies.
+    *   Sets up honeypot trap ports.
+*   **`service_killer.sh`**: Terminates unnecessary services.
+    *   Services listed in `PROTECTED_SERVICES` in `vars.sh` are preserved.
+*   **`audit.sh`**: System security audit tool.
+    *   Checks Cron, SUID, processes, temporary directories, etc.
+    *   Use the `--fix` option to automatically neutralize emerging threats.
+*   **`monitor.sh`**: Real-time defense dashboard.
 
-## Secure Mail Ports (Optional)
+---
 
-If you need secure mail ports, add manually:
-```bash
-sudo firewall-cmd --permanent --add-port=465/tcp   # SMTPS
-sudo firewall-cmd --permanent --add-port=587/tcp   # Submission
-sudo firewall-cmd --permanent --add-port=993/tcp   # IMAPS
-sudo firewall-cmd --permanent --add-port=995/tcp   # POP3S
-sudo firewall-cmd --reload
-```
+## 🛠️ Key Features
+
+### 1. Splunk Log Forwarding
+When `deploy.sh` is executed, it automatically configures `rsyslog` to forward system logs (`syslog`) to the Splunk server (`172.20.242.20`).
+*   Config File: `/etc/rsyslog.d/99-ccdc-forward.conf`
+*   Target Port: UDP 514
+
+### 2. Offline Mode Support
+The scripts automatically detect closed network environments where external Yum/Apt repositories are inaccessible.
+*   If there is no internet connection, package installation steps are skipped, and only configuration changes are applied to prevent errors.
+
+### 3. Service Protection
+Safeguards are in place to ensure that Webmail's core services (`postfix`/`dovecot`) and Webmail UI (`httpd`/`nginx`) are not accidentally terminated.
+*   You can add/remove protected services in the `vars.sh` file.
+
+---
+
+## ⚠️ Notes
+
+*   **Password Change**: The password entered during `init_setting.sh` applies to **ALL users**. Make sure to remember it.
+*   **Audit Fix**: `sudo ./audit.sh --fix` performs powerful actions. It might mistakenly identify legitimate Cron jobs or files as threats, so please verify with `--report` first if possible.
+*   **Recovery**: Key files are backed up to a backup directory before any configuration changes. You can restore from there if issues arise.

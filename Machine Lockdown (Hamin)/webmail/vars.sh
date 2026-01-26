@@ -17,7 +17,14 @@ VERBOSE="true"
 # 2. NETWORK & SSH CONFIGURATION
 # ------------------------------------------------------------------------------
 # IMPORTANT: Update this with actual scoreboard IPs before competition!
+# Scoreboard IP is usually in the external range (e.g., 10.x.x.x or 172.25.x.x)
 SCOREBOARD_IPS=("10.0.0.1")
+
+# Topology IPs (CCDC 2026)
+SPLUNK_SERVER_IP="172.20.242.20"
+GATEWAY_IP="172.20.242.254"     # Palo Alto Inside
+AD_DNS_IP="172.20.240.102"      # AD/DNS
+
 
 # SSH Port
 SSH_PORT=22

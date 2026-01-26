@@ -74,12 +74,6 @@ rollback_firewall() {
         success "Firewall rules restored"
     else
         warn "No firewalld backup found in $backup_path"
-        
-        # Check for iptables backup
-        if [ -f "${backup_path}/iptables.rules" ]; then
-            info "Found iptables backup, restoring..."
-            restore_iptables "$backup_path"
-        fi
     fi
 }
 

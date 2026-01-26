@@ -242,34 +242,6 @@ create_rollback_point() {
     echo "$rollback_path"
 }
 
-# Save iptables rules for rollback
-backup_iptables() {
-    local rollback_path="$1"
-    
-    if is_dry_run; then
-        info "[DRY-RUN] Would backup iptables rules"
-        return 0
-    fi
-    
-    iptables-save > "${rollback_path}/iptables.rules" 2>/dev/null
-    ip6tables-save > "${rollback_path}/ip6tables.rules" 2>/dev/null
-    info "Backed up iptables rules to: $rollback_path"
-}
-
-# Restore iptables from backup
-restore_iptables() {
-    local rollback_path="$1"
-    
-    if [ -f "${rollback_path}/iptables.rules" ]; then
-        iptables-restore < "${rollback_path}/iptables.rules"
-        info "Restored iptables from: $rollback_path"
-    fi
-    
-    if [ -f "${rollback_path}/ip6tables.rules" ]; then
-        ip6tables-restore < "${rollback_path}/ip6tables.rules"
-        info "Restored ip6tables from: $rollback_path"
-    fi
-}
 
 # ------------------------------------------------------------------------------
 # 7.5. FIREWALLD SUPPORT (Fedora 42)
@@ -391,3 +363,58 @@ print_banner() {
 
 # Auto-initialize logging when sourced
 init_logging
+
+# ------------------------------------------------------------------------------
+# 11. SPLUNK LOG FORWARDING (RSYSLOG)
+# ------------------------------------------------------------------------------
+
+# Setup syslog forwarding to Splunk
+setup_splunk_forwarding() {
+    subheader "Splunk Log Forwarding"
+    
+    # Check if Splunk IP is configured
+    if [ -z "$SPLUNK_SERVER_IP" ] || [ "$SPLUNK_SERVER_IP" == "127.0.0.1" ]; then
+        warn "SPLUNK_SERVER_IP not set. Skipping log forwarding setup."
+        return
+    fi
+    
+    local config_file="/etc/rsyslog.d/99-ccdc-forward.conf"
+    local syslog_conf="/etc/rsyslog.conf"
+    
+    info "Target Splunk Server: $SPLUNK_SERVER_IP"
+    
+    if ! command_exists rsyslogd; then
+        warn "rsyslog not found. Attempting to install..."
+        if [ "$ONLINE_MODE" == "true" ]; then
+            if command_exists apt-get; then
+                apt-get install -y rsyslog >/dev/null 2>&1
+            elif command_exists dnf; then
+                dnf install -y rsyslog >/dev/null 2>&1
+            elif command_exists yum; then
+                yum install -y rsyslog >/dev/null 2>&1
+            fi
+        else
+            error "Cannot install rsyslog (Offline Mode). Log forwarding skipped."
+            return
+        fi
+    fi
+    
+    # Create forwarding config
+    if is_dry_run; then
+        info "[DRY-RUN] Would create $config_file with content: *.* @$SPLUNK_SERVER_IP:514"
+    else
+        # *.* means ALL logs. @ means UDP. @@ means TCP.
+        # We use UDP (@) for standard compatibility.
+        echo "*.* @${SPLUNK_SERVER_IP}:514" > "$config_file"
+        chmod 644 "$config_file"
+        success "Log forwarding rule created."
+        
+        # Restart rsyslog
+        if systemctl restart rsyslog; then
+            success "Rsyslog restarted. Logs are now being shipped!"
+        else
+            error "Failed to restart rsyslog."
+        fi
+    fi
+}
+
