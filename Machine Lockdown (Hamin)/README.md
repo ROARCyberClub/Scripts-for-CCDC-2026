@@ -59,5 +59,8 @@ The `wkst/router/` folder contains scripts for VyOS router configuration. Enteri
 
 What if a service stops working?
 1.  **Restart Service**: `systemctl restart <service_name>`
-2.  **Reset Firewall**: `iptables -F` (Delete all rules - Last Resort)
-3.  **Restore Backup**: Each script backs up key configuration files before execution. Check the `/root/ccdc_backup_...` folder.
+2.  **Reset Firewall**:
+    *   Ubuntu (ufw): `sudo ufw disable` or `sudo ufw reset`
+    *   Fedora/Oracle (firewalld): `sudo firewall-cmd --set-default-zone=trusted`
+3.  **Panic Mode**: Run `sudo ./panic.sh` in each folder to open all ports immediately.
+4.  **Restore Backup**: Each script backs up key configuration files before execution. Check the `/root/ccdc_backup_...` folder.
