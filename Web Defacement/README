@@ -1,0 +1,1 @@
+This script is intended to monitor and maintain integrity of a webserver. It operates by creating a backup of the website and running a check against the backup, alerting if there is any changes made, correcting the change, and making a note of what time the change occurred.
